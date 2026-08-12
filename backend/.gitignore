@@ -1,0 +1,6 @@
+.postgresql/data/
+.postgresql/postgres.log
+.postgresql/*.tmp
+.postgresql/*.zip
+backend.log
+backend-error.log

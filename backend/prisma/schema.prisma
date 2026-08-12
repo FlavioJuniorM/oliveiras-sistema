@@ -1,0 +1,262 @@
+// Schema do banco de dados — Sistema Casa de Carnes Oliveiras
+// Fase 1 implementa: Usuario (auth + permissões)
+// Demais modelos já modelados aqui para as próximas fases (clientes, produtos, pedidos...)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PapelUsuario {
+  FUNCIONARIO
+  ADMINISTRATIVO
+}
+
+enum StatusRegistro {
+  ATIVO
+  INATIVO
+}
+
+model Usuario {
+  id            String        @id @default(uuid())
+  nome          String
+  login         String        @unique
+  senhaHash     String        @map("senha_hash")
+  papel         PapelUsuario  @default(FUNCIONARIO)
+  status        StatusRegistro @default(ATIVO)
+  criadoEm      DateTime      @default(now()) @map("criado_em")
+  atualizadoEm  DateTime      @updatedAt @map("atualizado_em")
+
+  pedidos       Pedido[]      @relation("PedidoUsuario")
+  pagamentos    Pagamento[]   @relation("PagamentoUsuario")
+  logs          Log[]
+
+  @@map("usuarios")
+}
+
+enum TipoCliente {
+  PESSOA_FISICA
+  EMPRESA
+  EVENTO
+}
+
+model Cliente {
+  id              String        @id @default(uuid())
+  tipo            TipoCliente
+  nome            String
+  razaoSocial     String?       @map("razao_social")
+  nomeFantasia    String?       @map("nome_fantasia")
+  documento       String?       // CPF/CNPJ
+  telefone        String?
+  whatsapp        String?
+  email           String?
+  endereco        String?
+  limiteCredito   Decimal?      @map("limite_credito") @db.Decimal(12, 2)
+  prazoPadraoDias Int?          @map("prazo_padrao_dias")
+  formaPagamentoPadrao String?  @map("forma_pagamento_padrao")
+  observacoes     String?
+  status          StatusRegistro @default(ATIVO)
+  criadoEm        DateTime      @default(now()) @map("criado_em")
+
+  pedidos         Pedido[]
+  contasReceber   ContaReceber[]
+
+  @@index([documento])
+  @@index([nome])
+  @@map("clientes")
+}
+
+enum TipoVenda {
+  PESO
+  UNIDADE
+  PACOTE_FIXO
+}
+
+model CategoriaProduto {
+  id       String    @id @default(uuid())
+  nome     String
+  produtos Produto[]
+
+  @@map("categorias_produtos")
+}
+
+model Produto {
+  id            String        @id @default(uuid())
+  codigo        String        @unique
+  nome          String
+  categoriaId   String?       @map("categoria_id")
+  categoria     CategoriaProduto? @relation(fields: [categoriaId], references: [id])
+  tipoVenda     TipoVenda     @default(PESO) @map("tipo_venda")
+  unidadeMedida String        @default("kg") @map("unidade_medida")
+  preco         Decimal       @db.Decimal(12, 2)
+  status        StatusRegistro @default(ATIVO)
+  observacoes   String?
+
+  itens         PedidoItem[]
+
+  @@map("produtos")
+}
+
+enum StatusPagamentoPedido {
+  PENDENTE
+  PARCIALMENTE_PAGO
+  PAGO
+  VENCIDO
+  CANCELADO
+}
+
+// Fluxo operacional do pedido, separado do status financeiro.
+enum StatusOperacaoPedido {
+  RECEBIDO
+  EM_PREPARO
+  EXPEDICAO
+  PRONTO
+  EM_ENTREGA
+  ENTREGUE
+}
+
+enum StatusPreparoItem {
+  PENDENTE
+  EM_CORTE
+  CORTADO
+}
+
+model Pedido {
+  id                String        @id @default(uuid())
+  numero            String        @unique
+  clienteId         String?       @map("cliente_id")
+  cliente           Cliente?      @relation(fields: [clienteId], references: [id])
+  usuarioId         String        @map("usuario_id")
+  usuario           Usuario       @relation("PedidoUsuario", fields: [usuarioId], references: [id])
+  subtotal          Decimal       @db.Decimal(12, 2)
+  desconto          Decimal       @default(0) @db.Decimal(12, 2)
+  total             Decimal       @db.Decimal(12, 2)
+  statusPagamento   StatusPagamentoPedido @default(PENDENTE) @map("status_pagamento")
+  statusOperacao    StatusOperacaoPedido  @default(RECEBIDO) @map("status_operacao")
+  vencimento        DateTime?
+  criadoEm          DateTime      @default(now()) @map("criado_em")
+
+  itens             PedidoItem[]
+  pagamentos        Pagamento[]
+  contaReceber      ContaReceber?
+  notaFiscal        NotaFiscal?
+
+  @@map("pedidos")
+}
+
+model PedidoItem {
+  id             String   @id @default(uuid())
+  pedidoId       String   @map("pedido_id")
+  pedido         Pedido   @relation(fields: [pedidoId], references: [id])
+  produtoId      String   @map("produto_id")
+  produto        Produto  @relation(fields: [produtoId], references: [id])
+  pesoOuQtd      Decimal  @map("peso_ou_qtd") @db.Decimal(12, 3)
+  pesoReal       Decimal? @map("peso_real") @db.Decimal(12, 3)
+  statusPreparo  StatusPreparoItem @default(PENDENTE) @map("status_preparo")
+  precoUnitario  Decimal  @map("preco_unitario") @db.Decimal(12, 2) // snapshot do preço na venda
+  subtotal       Decimal  @db.Decimal(12, 2)
+
+  @@map("pedido_itens")
+}
+
+enum FormaPagamento {
+  DINHEIRO
+  PIX
+  CARTAO_DEBITO
+  CARTAO_CREDITO
+  TRANSFERENCIA
+  BOLETO
+  A_PRAZO
+  OUTROS
+}
+
+model Pagamento {
+  id         String         @id @default(uuid())
+  pedidoId   String         @map("pedido_id")
+  pedido     Pedido         @relation(fields: [pedidoId], references: [id])
+  forma      FormaPagamento
+  valor      Decimal        @db.Decimal(12, 2)
+  usuarioId  String         @map("usuario_id")
+  usuario    Usuario        @relation("PagamentoUsuario", fields: [usuarioId], references: [id])
+  criadoEm   DateTime       @default(now()) @map("criado_em")
+
+  @@map("pagamentos")
+}
+
+enum StatusConta {
+  PENDENTE
+  PAGO
+  VENCIDO
+  PARCIAL
+  CANCELADO
+}
+
+// Contador usado para gerar a numeração sequencial dos pedidos no formato ANO-NNNNNN
+// (reinicia a cada ano — já preparado para, no futuro, ter um contador por loja/unidade)
+model ContadorPedido {
+  id           String @id @default(uuid())
+  ano          Int    @unique
+  ultimoNumero Int    @default(0)
+
+  @@map("contadores_pedido")
+}
+
+model ContaReceber {
+  id             String      @id @default(uuid())
+  pedidoId       String      @unique @map("pedido_id")
+  pedido         Pedido      @relation(fields: [pedidoId], references: [id])
+  clienteId      String      @map("cliente_id")
+  cliente        Cliente     @relation(fields: [clienteId], references: [id])
+  valorOriginal  Decimal     @map("valor_original") @db.Decimal(12, 2)
+  saldo          Decimal     @db.Decimal(12, 2)
+  vencimento     DateTime
+  status         StatusConta @default(PENDENTE)
+
+  @@map("contas_receber")
+}
+
+model ContaPagar {
+  id             String      @id @default(uuid())
+  fornecedor     String
+  descricao      String
+  categoria      String
+  valor          Decimal     @db.Decimal(12, 2)
+  dataLancamento DateTime    @map("data_lancamento")
+  vencimento     DateTime
+  dataPagamento  DateTime?   @map("data_pagamento")
+  formaPagamento String?     @map("forma_pagamento")
+  status         StatusConta @default(PENDENTE)
+  observacoes    String?
+
+  @@map("contas_pagar")
+}
+
+model NotaFiscal {
+  id           String    @id @default(uuid())
+  pedidoId     String    @unique @map("pedido_id")
+  pedido       Pedido    @relation(fields: [pedidoId], references: [id])
+  numero       String?
+  serie        String?
+  chaveAcesso  String?   @map("chave_acesso")
+  status       String?
+  emitidaEm    DateTime? @map("emitida_em")
+
+  @@map("notas_fiscais")
+}
+
+model Log {
+  id         String   @id @default(uuid())
+  usuarioId  String   @map("usuario_id")
+  usuario    Usuario  @relation(fields: [usuarioId], references: [id])
+  acao       String
+  entidade   String?
+  entidadeId String?  @map("entidade_id")
+  detalhes   String?
+  criadoEm   DateTime @default(now()) @map("criado_em")
+
+  @@map("logs")
+}

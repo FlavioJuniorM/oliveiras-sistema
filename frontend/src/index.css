@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-ink;
+  }
+  ::selection {
+    @apply bg-primary/20;
+  }
+  /* Foco de teclado visível — acessibilidade */
+  :focus-visible {
+    outline: 2px solid #c8102e;
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .balcao-tap {
+    @apply active:scale-[0.98] transition-transform duration-100;
+  }
+}
