@@ -11,6 +11,7 @@ import {
   registrarPagamento,
   atualizarStatusOperacaoPedido,
   atualizarPreparoItem,
+  finalizarConferenciaPedido,
 } from "./pedidos.service";
 
 export const pedidosRouter = Router();
@@ -99,6 +100,18 @@ const preparoItemSchema = z.object({
   pesoReal: z.number().positive().optional(),
 });
 
+const finalizacaoConferenciaSchema = z.object({
+  formaPagamento: z.enum([
+    "DINHEIRO",
+    "PIX",
+    "CARTAO_DEBITO",
+    "CARTAO_CREDITO",
+    "TRANSFERENCIA",
+    "A_PRAZO",
+  ]),
+  vencimento: z.coerce.date().optional(),
+});
+
 pedidosRouter.patch("/:id/itens/:itemId/preparo", async (req, res) => {
   const validacao = preparoItemSchema.safeParse(req.body);
   if (!validacao.success) {
@@ -141,6 +154,28 @@ pedidosRouter.patch("/:id/status-operacao", async (req, res) => {
     }
     console.error(erro);
     return res.status(500).json({ erro: "Erro interno ao atualizar o pedido." });
+  }
+});
+
+pedidosRouter.post("/:id/finalizar-conferencia", async (req, res) => {
+  const validacao = finalizacaoConferenciaSchema.safeParse(req.body);
+  if (!validacao.success) {
+    return res.status(400).json({ erro: validacao.error.issues[0].message });
+  }
+
+  try {
+    const pedido = await finalizarConferenciaPedido(
+      req.params.id,
+      validacao.data,
+      req.usuario!.id
+    );
+    return res.json(pedido);
+  } catch (erro) {
+    if (erro instanceof ErroPedido) {
+      return res.status(400).json({ erro: erro.message });
+    }
+    console.error(erro);
+    return res.status(500).json({ erro: "Erro interno ao finalizar a conferência." });
   }
 });
 

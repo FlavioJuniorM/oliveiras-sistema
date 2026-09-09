@@ -218,8 +218,8 @@ export async function listarPedidos(filtros: { status?: string; clienteId?: stri
       itens: {
         include: {
           produto: true,
-          preparadoPor: { select: { nome: true } },
-          cortadoPor: { select: { nome: true } },
+          preparadoPor: { select: { id: true, nome: true } },
+          cortadoPor: { select: { id: true, nome: true } },
         },
       },
       contaReceber: true,
@@ -259,11 +259,23 @@ export async function atualizarPreparoItem(
   if (item.pedido.statusPagamento === "CANCELADO") {
     throw new ErroPedido("Não é possível alterar uma comanda cancelada.");
   }
+  if (
+    item.statusPreparo === "EM_CORTE" &&
+    item.preparadoPorId &&
+    item.preparadoPorId !== usuarioId
+  ) {
+    throw new ErroPedido("Este corte já está sendo feito por outro açougueiro.");
+  }
   if (input.statusPreparo === "CORTADO" && (!input.pesoReal || input.pesoReal <= 0)) {
     throw new ErroPedido("Informe o peso real para confirmar o corte.");
   }
 
-  const pesoReal = input.pesoReal ?? (input.statusPreparo === "PENDENTE" ? null : Number(item.pesoReal ?? item.pesoOuQtd));
+  const pesoReal =
+    input.statusPreparo === "CORTADO"
+      ? input.pesoReal!
+      : input.statusPreparo === "PENDENTE"
+      ? null
+      : null;
   const subtotal = Number((Number(item.precoUnitario) * Number(pesoReal ?? item.pesoOuQtd)).toFixed(2));
 
   const dadosPreparo = {
@@ -275,10 +287,20 @@ export async function atualizarPreparoItem(
   };
 
   await prisma.$transaction(async (tx) => {
-    await tx.pedidoItem.update({
-      where: { id: itemId },
-      data: { ...dadosPreparo, subtotal },
-    });
+    if (input.statusPreparo === "EM_CORTE" && item.statusPreparo === "PENDENTE") {
+      const inicio = await tx.pedidoItem.updateMany({
+        where: { id: itemId, pedidoId, statusPreparo: "PENDENTE" },
+        data: { ...dadosPreparo, subtotal },
+      });
+      if (inicio.count === 0) {
+        throw new ErroPedido("Este corte acabou de ser assumido por outro açougueiro.");
+      }
+    } else {
+      await tx.pedidoItem.update({
+        where: { id: itemId },
+        data: { ...dadosPreparo, subtotal },
+      });
+    }
 
     const itens = await tx.pedidoItem.findMany({ where: { pedidoId } });
     const subtotalPedido = Number(itens.reduce((total, atual) => total + Number(atual.subtotal), 0).toFixed(2));
@@ -289,7 +311,14 @@ export async function atualizarPreparoItem(
 
     await tx.pedido.update({
       where: { id: pedidoId },
-      data: { subtotal: subtotalPedido, total: totalPedido, statusPagamento },
+      data: {
+        subtotal: subtotalPedido,
+        total: totalPedido,
+        statusPagamento,
+        ...(item.pedido.statusOperacao === "RECEBIDO" && input.statusPreparo !== "PENDENTE"
+          ? { statusOperacao: "EM_PREPARO" }
+          : {}),
+      },
     });
 
     if (item.pedido.contaReceber) {
@@ -341,11 +370,11 @@ export async function atualizarStatusOperacaoPedido(
     include: {
       cliente: true,
       usuario: { select: { nome: true } },
-      itens: {
-        include: {
-          produto: true,
-          preparadoPor: { select: { nome: true } },
-          cortadoPor: { select: { nome: true } },
+        itens: {
+          include: {
+            produto: true,
+            preparadoPor: { select: { id: true, nome: true } },
+            cortadoPor: { select: { id: true, nome: true } },
         },
       },
       contaReceber: true,
@@ -372,8 +401,8 @@ export async function obterPedido(id: string) {
       itens: {
         include: {
           produto: true,
-          preparadoPor: { select: { nome: true } },
-          cortadoPor: { select: { nome: true } },
+          preparadoPor: { select: { id: true, nome: true } },
+          cortadoPor: { select: { id: true, nome: true } },
         },
       },
       pagamentos: { include: { usuario: { select: { nome: true } } } },
@@ -381,6 +410,108 @@ export async function obterPedido(id: string) {
       notaFiscal: true,
     },
   });
+}
+
+export type FormaPagamentoFinal =
+  | "DINHEIRO"
+  | "PIX"
+  | "CARTAO_DEBITO"
+  | "CARTAO_CREDITO"
+  | "TRANSFERENCIA"
+  | "A_PRAZO";
+
+/**
+ * Fecha a conferência dos cortes e registra a condição de pagamento somente
+ * depois que todos os pesos reais foram confirmados.
+ */
+export async function finalizarConferenciaPedido(
+  pedidoId: string,
+  input: { formaPagamento: FormaPagamentoFinal; vencimento?: Date },
+  usuarioId: string
+) {
+  const pedido = await prisma.pedido.findUnique({
+    where: { id: pedidoId },
+    include: { cliente: true, itens: true, pagamentos: true, contaReceber: true },
+  });
+
+  if (!pedido) throw new ErroPedido("Pedido não encontrado.");
+  if (pedido.statusPagamento === "CANCELADO") {
+    throw new ErroPedido("Não é possível finalizar uma comanda cancelada.");
+  }
+  if (pedido.itens.some((item) => item.statusPreparo !== "CORTADO")) {
+    throw new ErroPedido("Confirme todos os cortes e pesos reais antes de finalizar.");
+  }
+
+  const total = Number(pedido.total);
+  const totalPago = pedido.pagamentos.reduce((soma, pagamento) => soma + Number(pagamento.valor), 0);
+  const saldo = Number(Math.max(total - totalPago, 0).toFixed(2));
+
+  if (input.formaPagamento === "A_PRAZO") {
+    if (!pedido.clienteId) throw new ErroPedido("Pagamento posterior exige um cliente cadastrado.");
+    if (!input.vencimento) throw new ErroPedido("Informe a data de vencimento do pagamento posterior.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    if (input.formaPagamento === "A_PRAZO") {
+      if (pedido.contaReceber) {
+        await tx.contaReceber.update({
+          where: { pedidoId },
+          data: {
+            valorOriginal: saldo,
+            saldo,
+            vencimento: input.vencimento!,
+            status: "PENDENTE",
+          },
+        });
+      } else {
+        await tx.contaReceber.create({
+          data: {
+            pedidoId,
+            clienteId: pedido.clienteId!,
+            valorOriginal: saldo,
+            saldo,
+            vencimento: input.vencimento!,
+            status: "PENDENTE",
+          },
+        });
+      }
+    } else if (saldo > TOLERANCIA_CENTAVOS) {
+      await tx.pagamento.create({
+        data: {
+          pedidoId,
+          forma: input.formaPagamento,
+          valor: saldo,
+          usuarioId,
+        },
+      });
+
+      if (pedido.contaReceber) {
+        await tx.contaReceber.update({
+          where: { pedidoId },
+          data: { saldo: 0, status: "PAGO" },
+        });
+      }
+    }
+
+    await tx.pedido.update({
+      where: { id: pedidoId },
+      data: {
+        statusOperacao: "EXPEDICAO",
+        statusPagamento: input.formaPagamento === "A_PRAZO" ? "PENDENTE" : "PAGO",
+        vencimento: input.formaPagamento === "A_PRAZO" ? input.vencimento : null,
+      },
+    });
+  });
+
+  await registrarLog({
+    usuarioId,
+    acao: "FINALIZOU_CONFERENCIA_PEDIDO",
+    entidade: "pedido",
+    entidadeId: pedidoId,
+    detalhes: `Finalizou a conferência do pedido ${pedido.numero} — pagamento ${input.formaPagamento}`,
+  });
+
+  return obterPedido(pedidoId);
 }
 
 /**

@@ -57,8 +57,8 @@ export interface PedidoItem {
   pesoOuQtd: string | number;
   pesoReal?: string | number | null;
   statusPreparo: StatusPreparoItem;
-  preparadoPor?: { nome: string } | null;
-  cortadoPor?: { nome: string } | null;
+  preparadoPor?: { id?: string; nome: string } | null;
+  cortadoPor?: { id?: string; nome: string } | null;
   precoUnitario: string | number;
   subtotal: string | number;
 }
