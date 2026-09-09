@@ -5,6 +5,7 @@ import { somentePapel } from "../../middlewares/permissoes";
 import {
   criarContaPagar,
   excluirLancamentoContaPagar,
+  ErroContaPagar,
   listarContasPagar,
   pagarContaPagar,
 } from "./contasPagar.service";
@@ -65,13 +66,19 @@ contasPagarRouter.patch("/:id/pagar", async (req, res) => {
     return res.status(400).json({ erro: validacao.error.issues[0].message });
   }
 
-  const conta = await pagarContaPagar(
-    req.params.id,
-    validacao.data.valorPago,
-    validacao.data.formaPagamento,
-    req.usuario!.id
-  );
-  return res.json(conta);
+  try {
+    const conta = await pagarContaPagar(
+      req.params.id,
+      validacao.data.valorPago,
+      validacao.data.formaPagamento,
+      req.usuario!.id
+    );
+    return res.json(conta);
+  } catch (erro) {
+    if (erro instanceof ErroContaPagar) return res.status(400).json({ erro: erro.message });
+    console.error(erro);
+    return res.status(500).json({ erro: "Erro interno ao registrar pagamento." });
+  }
 });
 
 contasPagarRouter.patch("/:id/cancelar", async (req, res) => {

@@ -26,12 +26,14 @@ export function Dashboard() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-7 gap-4">
         <KpiCard rotulo="Vendas hoje" valor={formatarMoeda(dados.vendasHoje)} destaque />
         <KpiCard rotulo="Recebido hoje" valor={formatarMoeda(dados.recebidoHoje)} tom="sucesso" />
         <KpiCard rotulo="A receber" valor={formatarMoeda(dados.totalAReceber)} tom="alerta" />
         <KpiCard rotulo="Vencido" valor={formatarMoeda(dados.totalVencido)} tom="perigo" />
         <KpiCard rotulo="Pedidos hoje" valor={String(dados.numeroPedidosHoje)} />
+        <KpiCard rotulo="Em preparo" valor={String(dados.pedidosEmPreparo)} tom="alerta" />
+        <KpiCard rotulo="Em rota" valor={String(dados.pedidosEmEntrega)} tom="sucesso" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -45,23 +47,13 @@ export function Dashboard() {
           </CardSubtitulo>
         </Card>
 
-        <Card className="lg:col-span-2">
-          <CardTitulo>Produtos mais vendidos no mês</CardTitulo>
-          <div className="mt-3 flex flex-col divide-y divide-border">
-            {dados.produtosMaisVendidos.length === 0 && (
-              <p className="text-muted text-sm py-3">Nenhuma venda registrada neste mês ainda.</p>
-            )}
-            {dados.produtosMaisVendidos.map((produto) => (
-              <div key={produto.nome} className="flex items-center justify-between py-2.5">
-                <div>
-                  <p className="text-sm font-medium text-ink">{produto.nome}</p>
-                  <p className="text-xs text-muted">{produto.quantidade} kg vendidos</p>
-                </div>
-                <p className="text-sm font-semibold text-ink">{formatarMoeda(produto.faturamento)}</p>
-              </div>
-            ))}
-          </div>
-        </Card>
+        <Card className="lg:col-span-2"><CardTitulo>Mais vendidas no mês</CardTitulo><ListaRanking itens={dados.produtosMaisVendidos} tipo="produto" /></Card>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card><CardTitulo>Menos vendidas no mês</CardTitulo><ListaRanking itens={dados.produtosMenosVendidos} tipo="produto" vazio="Nenhum produto cadastrado." /></Card>
+        <Card><CardTitulo>Clientes que mais compraram</CardTitulo><ListaRanking itens={dados.clientesMaisCompraram} tipo="cliente" /></Card>
+        <Card><CardTitulo>Clientes que menos compraram</CardTitulo><ListaRanking itens={dados.clientesMenosCompraram} tipo="cliente" vazio="Nenhum cliente cadastrado." /></Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -112,6 +104,11 @@ export function Dashboard() {
       </div>
     </div>
   );
+}
+
+function ListaRanking({ itens, tipo, vazio = "Nenhuma venda registrada neste mês ainda." }: { itens: { nome: string; quantidade?: number; faturamento?: number; pedidos?: number; valorComprado?: number }[]; tipo: "produto" | "cliente"; vazio?: string }) {
+  if (itens.length === 0) return <p className="text-muted text-sm py-3">{vazio}</p>;
+  return <div className="mt-3 flex flex-col divide-y divide-border">{itens.map((item, indice) => <div key={`${item.nome}-${indice}`} className="flex items-center justify-between gap-3 py-2.5"><div className="flex items-center gap-3"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-background text-xs font-bold text-primary">{indice + 1}</span><div><p className="text-sm font-medium text-ink">{item.nome}</p><p className="text-xs text-muted">{tipo === "produto" ? `${Number(item.quantidade || 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} kg vendidos` : `${item.pedidos || 0} pedido(s)`}</p></div></div><p className="text-sm font-semibold text-ink">{formatarMoeda(tipo === "produto" ? item.faturamento || 0 : item.valorComprado || 0)}</p></div>)}</div>;
 }
 
 function LinhaConta({

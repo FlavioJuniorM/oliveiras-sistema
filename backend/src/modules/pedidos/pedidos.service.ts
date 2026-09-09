@@ -215,7 +215,13 @@ export async function listarPedidos(filtros: { status?: string; clienteId?: stri
     include: {
       cliente: true,
       usuario: { select: { nome: true } },
-      itens: { include: { produto: true } },
+      itens: {
+        include: {
+          produto: true,
+          preparadoPor: { select: { nome: true } },
+          cortadoPor: { select: { nome: true } },
+        },
+      },
       contaReceber: true,
     },
     orderBy: { criadoEm: "desc" },
@@ -260,10 +266,18 @@ export async function atualizarPreparoItem(
   const pesoReal = input.pesoReal ?? (input.statusPreparo === "PENDENTE" ? null : Number(item.pesoReal ?? item.pesoOuQtd));
   const subtotal = Number((Number(item.precoUnitario) * Number(pesoReal ?? item.pesoOuQtd)).toFixed(2));
 
+  const dadosPreparo = {
+    statusPreparo: input.statusPreparo,
+    pesoReal,
+    preparadoPorId:
+      input.statusPreparo === "EM_CORTE" ? usuarioId : input.statusPreparo === "CORTADO" ? item.preparadoPorId ?? usuarioId : null,
+    cortadoPorId: input.statusPreparo === "CORTADO" ? usuarioId : null,
+  };
+
   await prisma.$transaction(async (tx) => {
     await tx.pedidoItem.update({
       where: { id: itemId },
-      data: { statusPreparo: input.statusPreparo, pesoReal, subtotal },
+      data: { ...dadosPreparo, subtotal },
     });
 
     const itens = await tx.pedidoItem.findMany({ where: { pedidoId } });
@@ -327,7 +341,13 @@ export async function atualizarStatusOperacaoPedido(
     include: {
       cliente: true,
       usuario: { select: { nome: true } },
-      itens: { include: { produto: true } },
+      itens: {
+        include: {
+          produto: true,
+          preparadoPor: { select: { nome: true } },
+          cortadoPor: { select: { nome: true } },
+        },
+      },
       contaReceber: true,
     },
   });
@@ -349,7 +369,13 @@ export async function obterPedido(id: string) {
     include: {
       cliente: true,
       usuario: { select: { nome: true } },
-      itens: { include: { produto: true } },
+      itens: {
+        include: {
+          produto: true,
+          preparadoPor: { select: { nome: true } },
+          cortadoPor: { select: { nome: true } },
+        },
+      },
       pagamentos: { include: { usuario: { select: { nome: true } } } },
       contaReceber: true,
       notaFiscal: true,

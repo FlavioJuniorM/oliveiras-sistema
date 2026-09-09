@@ -20,17 +20,19 @@ export async function obterDashboard() {
   const inicioMes = inicioDoMes();
   const daquiA7Dias = new Date(hoje.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  const [pedidosHoje, pedidosMes, contasReceber, contasPagar] = await Promise.all([
+  const [pedidosHoje, pedidosMes, contasReceber, contasPagar, clientesAtivos, produtosAtivos] = await Promise.all([
     prisma.pedido.findMany({
       where: { criadoEm: { gte: hoje }, statusPagamento: { not: "CANCELADO" } },
       include: { pagamentos: true, itens: true },
     }),
     prisma.pedido.findMany({
       where: { criadoEm: { gte: inicioMes }, statusPagamento: { not: "CANCELADO" } },
-      include: { pagamentos: true },
+      include: { pagamentos: true, cliente: true },
     }),
     prisma.contaReceber.findMany({ where: { status: { not: "CANCELADO" } } }),
     prisma.contaPagar.findMany({ where: { status: { not: "PAGO" } } }),
+    prisma.cliente.findMany({ where: { status: "ATIVO" }, orderBy: { nome: "asc" } }),
+    prisma.produto.findMany({ where: { status: "ATIVO" }, orderBy: { nome: "asc" } }),
   ]);
 
   const vendasHoje = pedidosHoje.reduce((s, p) => s + Number(p.total), 0);
@@ -65,13 +67,42 @@ export async function obterDashboard() {
       quantidade: 0,
       faturamento: 0,
     };
-    atual.quantidade += Number(item.pesoOuQtd);
+    atual.quantidade += Number(item.pesoReal ?? item.pesoOuQtd);
     atual.faturamento += Number(item.subtotal);
     porProduto.set(item.produtoId, atual);
   }
 
-  const produtosMaisVendidos = Array.from(porProduto.values())
+  const produtosComVendas = produtosAtivos.map((produto) => ({
+    nome: produto.nome,
+    quantidade: porProduto.get(produto.id)?.quantidade ?? 0,
+    faturamento: porProduto.get(produto.id)?.faturamento ?? 0,
+  }));
+
+  const produtosMaisVendidos = produtosComVendas
     .sort((a, b) => b.faturamento - a.faturamento)
+    .slice(0, 5);
+
+  const produtosMenosVendidos = [...produtosComVendas]
+    .sort((a, b) => a.faturamento - b.faturamento)
+    .slice(0, 5);
+
+  const porCliente = new Map<string, { id: string; nome: string; pedidos: number; valorComprado: number }>();
+  for (const cliente of clientesAtivos) {
+    porCliente.set(cliente.id, { id: cliente.id, nome: cliente.nomeFantasia || cliente.razaoSocial || cliente.nome, pedidos: 0, valorComprado: 0 });
+  }
+  for (const pedido of pedidosMes) {
+    if (!pedido.clienteId || !pedido.cliente) continue;
+    const atual = porCliente.get(pedido.clienteId) || { id: pedido.clienteId, nome: pedido.cliente.nomeFantasia || pedido.cliente.razaoSocial || pedido.cliente.nome, pedidos: 0, valorComprado: 0 };
+    atual.pedidos += 1;
+    atual.valorComprado += Number(pedido.total);
+    porCliente.set(pedido.clienteId, atual);
+  }
+
+  const clientesMaisCompraram = Array.from(porCliente.values())
+    .sort((a, b) => b.valorComprado - a.valorComprado)
+    .slice(0, 5);
+  const clientesMenosCompraram = [...porCliente.values()]
+    .sort((a, b) => a.valorComprado - b.valorComprado)
     .slice(0, 5);
 
   const contasReceberProximasVencimento = contasReceber
@@ -101,6 +132,11 @@ export async function obterDashboard() {
     numeroPedidosHoje: pedidosHoje.length,
     clientesAtendidosHoje,
     produtosMaisVendidos,
+    produtosMenosVendidos,
+    clientesMaisCompraram,
+    clientesMenosCompraram,
+    pedidosEmPreparo: pedidosHoje.filter((p) => p.statusOperacao === "EM_PREPARO").length,
+    pedidosEmEntrega: pedidosHoje.filter((p) => p.statusOperacao === "EM_ENTREGA").length,
     contasReceberProximasVencimento,
     contasReceberVencidas,
     contasPagarProximasVencimento,

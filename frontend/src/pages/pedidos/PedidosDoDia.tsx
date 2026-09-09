@@ -23,6 +23,10 @@ function nomeDoCliente(pedido: Pedido) {
   return pedido.cliente?.nomeFantasia || pedido.cliente?.razaoSocial || pedido.cliente?.nome || "Consumidor final";
 }
 
+function nomeResponsavel(responsavel?: { nome: string } | null) {
+  return responsavel?.nome || "Aguardando";
+}
+
 function proximoStatus(status: string): StatusOperacaoPedido | null {
   if (status === "PRONTO") return "EM_ENTREGA";
   const indice = FLUXO.indexOf(status as StatusOperacaoPedido);
@@ -124,17 +128,12 @@ export function PedidosDoDia() {
                 </div>
                 <div className="mt-4 space-y-3">
                   {pedido.itens.map((item) => (
-                    <div key={item.id} className="flex items-start justify-between gap-3">
-                      <div className="flex gap-3">
-                        <span className={`flex h-7 min-w-7 items-center justify-center rounded-md px-1 text-sm font-bold ${item.statusPreparo === "CORTADO" ? "bg-success/10 text-success" : "bg-background text-primary"}`}>
-                          {Number(item.pesoReal ?? item.pesoOuQtd).toLocaleString("pt-BR", { maximumFractionDigits: 3 })}
-                        </span>
-                        <div>
-                          <p className="font-medium text-ink">{item.produto?.nome || "Carne / produto"}</p>
-                          <p className="text-xs text-muted">{item.statusPreparo === "CORTADO" ? "Corte confirmado" : `Solicitado · ${item.produto?.unidadeMedida || "unidade"}`}</p>
-                        </div>
+                    <div key={item.id} className="rounded-lg border border-border bg-background/60 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div><p className="font-semibold text-ink">{item.produto?.nome || "Carne / produto"}</p><p className="text-xs text-muted mt-1">Solicitado: {Number(item.pesoOuQtd).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {item.produto?.unidadeMedida || "unidade"} · Final: {Number(item.pesoReal ?? item.pesoOuQtd).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {item.produto?.unidadeMedida || "unidade"}</p></div>
+                        <div className="text-right"><p className="text-xs text-muted">Subtotal</p><p className="font-semibold text-ink">{formatarMoeda(item.subtotal)}</p></div>
                       </div>
-                      <p className="text-sm font-semibold text-ink">{formatarMoeda(item.subtotal)}</p>
+                      <div className="mt-2 grid grid-cols-2 gap-2 border-t border-border pt-2 text-xs"><p className="text-muted">Preço: <strong className="text-ink">{formatarMoeda(item.precoUnitario)}/{item.produto?.unidadeMedida || "unid."}</strong></p><p className="text-muted">Status: <strong className="text-ink">{item.statusPreparo === "CORTADO" ? "Corte confirmado" : item.statusPreparo === "EM_CORTE" ? "Em corte" : "Pendente"}</strong></p><p className="text-muted">Preparou: <strong className="text-ink">{nomeResponsavel(item.preparadoPor)}</strong></p><p className="text-muted">Cortou: <strong className="text-ink">{nomeResponsavel(item.cortadoPor)}</strong></p></div>
                     </div>
                   ))}
                 </div>
@@ -219,10 +218,10 @@ function ModalComanda({ pedido, onFechar, onAtualizado }: { pedido: Pedido; onFe
               return (
                 <div key={item.id} className={`rounded-lg border p-4 ${cortado ? "border-success/30 bg-success/5" : "border-border"}`}>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div><p className="font-semibold text-lg text-ink">{item.produto?.nome || "Carne / produto"}</p><p className="text-sm text-muted">Solicitado: {Number(item.pesoOuQtd).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {item.produto?.unidadeMedida || "unidade"}</p></div>
+                    <div><p className="font-semibold text-lg text-ink">{item.produto?.nome || "Carne / produto"}</p><p className="text-sm text-muted">Solicitado: {Number(item.pesoOuQtd).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {item.produto?.unidadeMedida || "unidade"} · Preço: {formatarMoeda(item.precoUnitario)}/{item.produto?.unidadeMedida || "unidade"}</p><p className="text-xs text-muted mt-1">Preparou: {nomeResponsavel(item.preparadoPor)} · Cortou: {nomeResponsavel(item.cortadoPor)}</p></div>
                     <StatusBadge status={item.statusPreparo} />
                   </div>
-                  {cortado && <p className="mt-3 text-sm text-success font-semibold">Peso confirmado: {Number(item.pesoReal ?? item.pesoOuQtd).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {item.produto?.unidadeMedida || "unidade"}</p>}
+                  {cortado && <div className="mt-3 rounded-lg bg-success/5 p-3 text-sm"><p className="text-success font-semibold">Peso confirmado: {Number(item.pesoReal ?? item.pesoOuQtd).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {item.produto?.unidadeMedida || "unidade"} · Subtotal {formatarMoeda(item.subtotal)}</p><p className="text-xs text-muted mt-1">Preparou: {nomeResponsavel(item.preparadoPor)} · Cortou: {nomeResponsavel(item.cortadoPor)}</p></div>}
                   {!cortado && <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end"><Input label="Peso real após o corte" type="number" step="0.001" placeholder={String(item.pesoOuQtd)} value={peso[item.id] || ""} onChange={(e) => setPeso((atual) => ({ ...atual, [item.id]: e.target.value }))} /><Button variante={emCorte ? "primaria" : "secundaria"} disabled={carregando === item.id} onClick={() => atualizarItem(item.id, emCorte ? "CORTADO" : "EM_CORTE")}>{carregando === item.id ? "Salvando..." : emCorte ? "Confirmar corte" : "Iniciar corte"}</Button></div>}
                   {cortado && <Button variante="fantasma" className="mt-2 px-0" onClick={() => atualizarItem(item.id, "EM_CORTE")}>Reabrir corte para editar peso</Button>}
                 </div>

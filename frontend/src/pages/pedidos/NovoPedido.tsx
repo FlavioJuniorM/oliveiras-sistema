@@ -40,8 +40,10 @@ export function NovoPedido() {
 
   // Produtos e carrinho
   const [produtos, setProdutos] = useState<Produto[]>([]);
+  const [buscaProduto, setBuscaProduto] = useState("");
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
   const [produtoParaPesar, setProdutoParaPesar] = useState<Produto | null>(null);
+  const [itemEditandoId, setItemEditandoId] = useState<string | null>(null);
   const [pesoDigitado, setPesoDigitado] = useState("");
 
   // Desconto e pagamento
@@ -79,10 +81,13 @@ export function NovoPedido() {
   const totalPagoImediato = pagamentos.reduce((s, p) => s + p.valor, 0);
   const saldoRestante = Number((total - totalPagoImediato).toFixed(2));
   const pedidoEmAberto = pagamentos.length === 0 && !vencimentoAPrazo;
+  const produtosVisiveis = useMemo(() => produtos.filter((produto) => `${produto.nome} ${produto.codigo} ${produto.categoria?.nome || ""}`.toLowerCase().includes(buscaProduto.toLowerCase())), [buscaProduto, produtos]);
 
-  function abrirPesagem(produto: Produto) {
+  function abrirPesagem(produto: Produto, itemId?: string) {
     setProdutoParaPesar(produto);
-    setPesoDigitado("");
+    setItemEditandoId(itemId || null);
+    const item = itemId ? carrinho.find((atual) => atual.produto.id === itemId) : undefined;
+    setPesoDigitado(item ? String(item.pesoOuQtd) : "");
   }
 
   function confirmarPesagem() {
@@ -90,6 +95,9 @@ export function NovoPedido() {
     if (!produtoParaPesar || !peso || peso <= 0) return;
 
     setCarrinho((atual) => {
+      if (itemEditandoId) {
+        return atual.map((item) => item.produto.id === itemEditandoId ? { ...item, pesoOuQtd: peso } : item);
+      }
       const existente = atual.find((i) => i.produto.id === produtoParaPesar.id);
       if (existente) {
         return atual.map((i) =>
@@ -99,6 +107,7 @@ export function NovoPedido() {
       return [...atual, { produto: produtoParaPesar, pesoOuQtd: peso }];
     });
     setProdutoParaPesar(null);
+    setItemEditandoId(null);
   }
 
   function removerItem(produtoId: string) {
@@ -161,6 +170,7 @@ export function NovoPedido() {
     setPagamentos([]);
     setVencimentoAPrazo("");
     setPedidoCriado(null);
+    setBuscaProduto("");
   }
 
   if (pedidoCriado) {
@@ -201,18 +211,22 @@ export function NovoPedido() {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div className="flex flex-col gap-5">
+      <div><p className="text-muted text-sm">Abertura de comanda · acompanhe cada etapa antes de enviar</p><h2 className="font-display text-3xl uppercase tracking-wide text-ink mt-1">Novo pedido</h2></div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-4"><Etapa numero="1" titulo="Cliente" ativa={Boolean(clienteSelecionado)} /><Etapa numero="2" titulo="Carnes e pesos" ativa={carrinho.length > 0} /><Etapa numero="3" titulo="Conferência" ativa={carrinho.length > 0} /><Etapa numero="4" titulo="Pagamento" ativa={pagamentos.length > 0 || Boolean(vencimentoAPrazo)} /></div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
       {/* Coluna principal: cliente + produtos */}
       <div className="lg:col-span-2 flex flex-col gap-4">
         <Card>
           <CardTitulo>1. Cliente</CardTitulo>
           {clienteSelecionado ? (
-            <div className="mt-3 flex items-center justify-between rounded-lg bg-background px-4 py-3">
+            <div className="mt-3 flex items-start justify-between gap-3 rounded-lg bg-background px-4 py-3">
               <div>
                 <p className="font-medium text-ink">{clienteSelecionado.nome}</p>
                 {clienteSelecionado.documento && (
                   <p className="text-xs text-muted">{clienteSelecionado.documento}</p>
                 )}
+                {clienteSelecionado.endereco && <p className="text-xs text-muted mt-1">Entrega: {clienteSelecionado.endereco}</p>}
               </div>
               <Button variante="fantasma" onClick={() => setClienteSelecionado(null)}>
                 Trocar
@@ -251,8 +265,10 @@ export function NovoPedido() {
 
         <Card>
           <CardTitulo>2. Selecione as carnes</CardTitulo>
+          <Input className="mt-3" placeholder="Pesquisar carne por nome, código ou categoria..." value={buscaProduto} onChange={(e) => setBuscaProduto(e.target.value)} />
+          <p className="mt-2 text-xs text-muted">Toque em uma carne para informar o peso ou a quantidade.</p>
           <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {produtos.map((produto) => (
+            {produtosVisiveis.map((produto) => (
               <button
                 key={produto.id}
                 onClick={() => abrirPesagem(produto)}
@@ -264,7 +280,7 @@ export function NovoPedido() {
                 </span>
               </button>
             ))}
-            {produtos.length === 0 && (
+            {produtosVisiveis.length === 0 && (
               <p className="text-muted text-sm col-span-full">Nenhum produto cadastrado ainda.</p>
             )}
           </div>
@@ -292,12 +308,7 @@ export function NovoPedido() {
                   <p className="text-sm font-semibold text-ink">
                     {formatarMoeda(Number(item.produto.preco) * item.pesoOuQtd)}
                   </p>
-                  <button
-                    onClick={() => removerItem(item.produto.id)}
-                    className="text-danger text-xs font-medium"
-                  >
-                    remover
-                  </button>
+                  <div className="flex flex-col items-end gap-1"><button onClick={() => abrirPesagem(item.produto, item.produto.id)} className="text-primary text-xs font-medium">editar peso</button><button onClick={() => removerItem(item.produto.id)} className="text-danger text-xs font-medium">remover</button></div>
                 </div>
               </div>
             ))}
@@ -337,7 +348,7 @@ export function NovoPedido() {
         </Card>
 
         <Card>
-          <CardTitulo>3. Pagamento (opcional na entrada)</CardTitulo>
+          <CardTitulo>4. Pagamento (opcional na entrada)</CardTitulo>
           <div className="mt-3 flex flex-col gap-2">
             {pagamentos.map((p, indice) => (
               <div
@@ -418,6 +429,8 @@ export function NovoPedido() {
         </Card>
       </div>
 
+      </div>
+
       {/* Modal simples de pesagem */}
       {produtoParaPesar && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 px-4">
@@ -448,11 +461,11 @@ export function NovoPedido() {
               </p>
             )}
             <div className="flex gap-2 mt-4">
-              <Button variante="secundaria" className="flex-1" onClick={() => setProdutoParaPesar(null)}>
+              <Button variante="secundaria" className="flex-1" onClick={() => { setProdutoParaPesar(null); setItemEditandoId(null); }}>
                 Cancelar
               </Button>
               <Button className="flex-1" onClick={confirmarPesagem}>
-                Adicionar
+                {itemEditandoId ? "Salvar peso" : "Adicionar carne"}
               </Button>
             </div>
           </Card>
@@ -460,4 +473,8 @@ export function NovoPedido() {
       )}
     </div>
   );
+}
+
+function Etapa({ numero, titulo, ativa }: { numero: string; titulo: string; ativa: boolean }) {
+  return <div className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 ${ativa ? "border-primary bg-primary/10" : "border-border bg-surface"}`}><span className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${ativa ? "bg-primary text-white" : "bg-background text-muted"}`}>{ativa ? "✓" : numero}</span><span className={`text-sm font-semibold ${ativa ? "text-primary" : "text-muted"}`}>{titulo}</span></div>;
 }

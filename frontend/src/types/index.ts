@@ -57,6 +57,8 @@ export interface PedidoItem {
   pesoOuQtd: string | number;
   pesoReal?: string | number | null;
   statusPreparo: StatusPreparoItem;
+  preparadoPor?: { nome: string } | null;
+  cortadoPor?: { nome: string } | null;
   precoUnitario: string | number;
   subtotal: string | number;
 }
@@ -100,6 +102,11 @@ export interface DashboardData {
   numeroPedidosHoje: number;
   clientesAtendidosHoje: number;
   produtosMaisVendidos: { nome: string; quantidade: number; faturamento: number }[];
+  produtosMenosVendidos: { nome: string; quantidade: number; faturamento: number }[];
+  clientesMaisCompraram: { id: string; nome: string; pedidos: number; valorComprado: number }[];
+  clientesMenosCompraram: { id: string; nome: string; pedidos: number; valorComprado: number }[];
+  pedidosEmPreparo: number;
+  pedidosEmEntrega: number;
   contasReceberProximasVencimento: any[];
   contasReceberVencidas: any[];
   contasPagarProximasVencimento: any[];

@@ -8,8 +8,12 @@ backend/.postgresql/*.tmp
 backend/.postgresql/*.zip
 backend/backend.log
 backend/backend-error.log
+backend/dev.log
+backend/dev-error.log
 frontend/frontend.log
 frontend/frontend-error.log
+frontend/dev.log
+frontend/dev-error.log
 frontend/tsconfig.tsbuildinfo
 frontend/.env
 frontend/.env.local
