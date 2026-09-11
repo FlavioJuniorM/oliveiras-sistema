@@ -5,6 +5,22 @@ import { gerarNumeroPedido } from "./numeroPedido";
 interface ItemPedidoInput {
   produtoId: string;
   pesoOuQtd: number;
+  unidadePedido?: UnidadePedido;
+}
+
+export type UnidadePedido = "kg" | "g" | "peca" | "unidade" | "outra";
+
+function unidadePadraoProduto(produto: { unidadeMedida: string }): UnidadePedido {
+  const unidade = produto.unidadeMedida.toLowerCase();
+  if (unidade === "g" || unidade.includes("gram")) return "g";
+  if (unidade === "un" || unidade.includes("pec")) return "peca";
+  if (unidade.includes("unid")) return "unidade";
+  return "kg";
+}
+
+function quantidadeParaPreco(quantidade: number, unidade: UnidadePedido, unidadeProduto: string) {
+  const produtoEmQuilo = unidadeProduto.toLowerCase() === "kg" || unidadeProduto.toLowerCase().includes("quilo");
+  return unidade === "g" && produtoEmQuilo ? quantidade / 1000 : quantidade;
 }
 
 interface PagamentoImediatoInput {
@@ -74,12 +90,14 @@ export async function criarPedido(input: CriarPedidoInput) {
     }
 
     const precoUnitario = Number(produto.preco);
-    const subtotalItem = Number((precoUnitario * item.pesoOuQtd).toFixed(2));
+    const unidadePedido = item.unidadePedido ?? unidadePadraoProduto(produto);
+    const subtotalItem = Number((precoUnitario * quantidadeParaPreco(item.pesoOuQtd, unidadePedido, produto.unidadeMedida)).toFixed(2));
 
     return {
       produtoId: produto.id,
       nome: produto.nome,
       pesoOuQtd: item.pesoOuQtd,
+      unidadePedido,
       precoUnitario,
       subtotal: subtotalItem,
     };
@@ -141,6 +159,7 @@ export async function criarPedido(input: CriarPedidoInput) {
           create: itensCalculados.map((i) => ({
             produtoId: i.produtoId,
             pesoOuQtd: i.pesoOuQtd,
+            unidadePedido: i.unidadePedido,
             precoUnitario: i.precoUnitario,
             subtotal: i.subtotal,
           })),
@@ -276,7 +295,7 @@ export async function atualizarPreparoItem(
       : input.statusPreparo === "PENDENTE"
       ? null
       : null;
-  const subtotal = Number((Number(item.precoUnitario) * Number(pesoReal ?? item.pesoOuQtd)).toFixed(2));
+  const subtotal = Number((Number(item.precoUnitario) * quantidadeParaPreco(Number(pesoReal ?? item.pesoOuQtd), item.unidadePedido as UnidadePedido, item.produto.unidadeMedida)).toFixed(2));
 
   const dadosPreparo = {
     statusPreparo: input.statusPreparo,

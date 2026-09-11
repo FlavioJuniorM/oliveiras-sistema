@@ -84,13 +84,13 @@ export async function gerarComandaTermica(pedidoId: string, largura: 32 | 42 = 3
   for (const item of pedido.itens) {
     linhas.push(item.produto.nome);
     linhas.push(
-      `  Sol.: ${formatarQuantidade(Number(item.pesoOuQtd), item.produto.unidadeMedida)}`
+      `  Sol.: ${formatarQuantidade(Number(item.pesoOuQtd), item.unidadePedido)}`
     );
     linhas.push(
-      `  Real: ${formatarQuantidade(item.pesoReal == null ? null : Number(item.pesoReal), item.produto.unidadeMedida)}`
+      `  Real: ${formatarQuantidade(item.pesoReal == null ? null : Number(item.pesoReal), item.unidadePedido)}`
     );
     linhas.push(
-      `  ${formatarMoeda(Number(item.precoUnitario))}/${item.produto.unidadeMedida} = ${formatarMoeda(Number(item.subtotal))}`
+      `  ${formatarMoeda(Number(item.precoUnitario))}/${item.unidadePedido} = ${formatarMoeda(Number(item.subtotal))}`
     );
   }
 
@@ -124,7 +124,7 @@ export async function gerarComandaTermicaHtml(pedidoId: string) {
   const { pedido, formasResumo } = dados;
   const cliente = pedido.cliente?.nomeFantasia || pedido.cliente?.razaoSocial || pedido.cliente?.nome || "Consumidor final";
   const itens = pedido.itens.map((item) => {
-    const unidade = item.produto.unidadeMedida || "un";
+    const unidade = item.unidadePedido || item.produto.unidadeMedida || "un";
     const solicitado = formatarQuantidade(Number(item.pesoOuQtd), unidade);
     const real = formatarQuantidade(item.pesoReal == null ? null : Number(item.pesoReal), unidade);
     return `<section class="item">

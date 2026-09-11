@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ErroApi } from "../../lib/api";
 import { formatarMoeda } from "../../lib/formatadores";
-import { Cliente, Produto } from "../../types";
+import { Cliente, Produto, UnidadePedido } from "../../types";
 import { useAuth } from "../../contexts/AuthContext";
 import { Card, CardTitulo } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
@@ -11,6 +11,31 @@ import { Input } from "../../components/ui/Input";
 interface ItemCarrinho {
   produto: Produto;
   pesoOuQtd: number;
+  unidadePedido: UnidadePedido;
+}
+
+const UNIDADES_PEDIDO: { valor: UnidadePedido; rotulo: string }[] = [
+  { valor: "kg", rotulo: "Quilo (kg)" },
+  { valor: "g", rotulo: "Gramas (g)" },
+  { valor: "peca", rotulo: "Peça" },
+  { valor: "unidade", rotulo: "Unidade" },
+  { valor: "outra", rotulo: "Outra unidade" },
+];
+
+function unidadeInicial(produto: Produto): UnidadePedido {
+  if (produto.unidadeMedida.toLowerCase() === "un") return "peca";
+  if (produto.unidadeMedida.toLowerCase().includes("gram")) return "g";
+  return "kg";
+}
+
+function chaveItem(item: ItemCarrinho) {
+  return `${item.produto.id}:${item.unidadePedido}`;
+}
+
+function quantidadeParaPreco(item: ItemCarrinho) {
+  return item.unidadePedido === "g" && item.produto.unidadeMedida.toLowerCase() === "kg"
+    ? item.pesoOuQtd / 1000
+    : item.pesoOuQtd;
 }
 
 export function NovoPedido() {
@@ -24,8 +49,9 @@ export function NovoPedido() {
   const [buscaProduto, setBuscaProduto] = useState("");
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
   const [produtoParaPesar, setProdutoParaPesar] = useState<Produto | null>(null);
-  const [itemEditandoId, setItemEditandoId] = useState<string | null>(null);
+  const [itemEditandoChave, setItemEditandoChave] = useState<string | null>(null);
   const [pesoDigitado, setPesoDigitado] = useState("");
+  const [unidadeDigitada, setUnidadeDigitada] = useState<UnidadePedido>("kg");
   const [desconto, setDesconto] = useState("0");
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
@@ -53,31 +79,32 @@ export function NovoPedido() {
     return produtos.filter((produto) => `${produto.nome} ${produto.codigo} ${produto.categoria?.nome || ""}`.toLowerCase().includes(termo));
   }, [buscaProduto, produtos]);
 
-  const subtotalSolicitado = useMemo(() => carrinho.reduce((soma, item) => soma + Number(item.produto.preco) * item.pesoOuQtd, 0), [carrinho]);
+  const subtotalSolicitado = useMemo(() => carrinho.reduce((soma, item) => soma + Number(item.produto.preco) * quantidadeParaPreco(item), 0), [carrinho]);
   const descontoNumero = Number(desconto) || 0;
   const totalEstimado = Math.max(subtotalSolicitado - descontoNumero, 0);
 
-  function abrirPesagem(produto: Produto, editar = false) {
+  function abrirPesagem(produto: Produto, itemParaEditar?: ItemCarrinho) {
     setProdutoParaPesar(produto);
-    setItemEditandoId(editar ? produto.id : null);
-    const existente = editar ? carrinho.find((item) => item.produto.id === produto.id) : undefined;
-    setPesoDigitado(existente ? String(existente.pesoOuQtd) : "");
+    setItemEditandoChave(itemParaEditar ? chaveItem(itemParaEditar) : null);
+    setPesoDigitado(itemParaEditar ? String(itemParaEditar.pesoOuQtd) : "");
+    setUnidadeDigitada(itemParaEditar?.unidadePedido || unidadeInicial(produto));
   }
 
   function fecharPesagem() {
     setProdutoParaPesar(null);
-    setItemEditandoId(null);
+    setItemEditandoChave(null);
     setPesoDigitado("");
+    setUnidadeDigitada("kg");
   }
 
   function confirmarPesagem() {
     const peso = Number(pesoDigitado.replace(",", "."));
     if (!produtoParaPesar || !peso || peso <= 0) return;
     setCarrinho((atual) => {
-      if (itemEditandoId) return atual.map((item) => item.produto.id === itemEditandoId ? { ...item, pesoOuQtd: peso } : item);
-      const existente = atual.find((item) => item.produto.id === produtoParaPesar.id);
-      if (existente) return atual.map((item) => item.produto.id === produtoParaPesar.id ? { ...item, pesoOuQtd: item.pesoOuQtd + peso } : item);
-      return [...atual, { produto: produtoParaPesar, pesoOuQtd: peso }];
+      if (itemEditandoChave) return atual.map((item) => chaveItem(item) === itemEditandoChave ? { ...item, pesoOuQtd: peso, unidadePedido: unidadeDigitada } : item);
+      const existente = atual.find((item) => item.produto.id === produtoParaPesar.id && item.unidadePedido === unidadeDigitada);
+      if (existente) return atual.map((item) => chaveItem(item) === chaveItem(existente) ? { ...item, pesoOuQtd: item.pesoOuQtd + peso } : item);
+      return [...atual, { produto: produtoParaPesar, pesoOuQtd: peso, unidadePedido: unidadeDigitada }];
     });
     fecharPesagem();
   }
@@ -92,7 +119,7 @@ export function NovoPedido() {
         method: "POST",
         body: {
           clienteId: clienteSelecionado.id,
-          itens: carrinho.map((item) => ({ produtoId: item.produto.id, pesoOuQtd: item.pesoOuQtd })),
+          itens: carrinho.map((item) => ({ produtoId: item.produto.id, pesoOuQtd: item.pesoOuQtd, unidadePedido: item.unidadePedido })),
           desconto: descontoNumero,
           pagamentos: [],
         },
@@ -137,14 +164,14 @@ export function NovoPedido() {
         </div>
         <Card className="h-fit xl:sticky xl:top-4">
           <div className="flex items-center justify-between gap-3"><CardTitulo>3. Conferir anotação</CardTitulo><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">Antes do corte</span></div>
-          <div className="mt-3 divide-y divide-border">{carrinho.length === 0 && <p className="py-4 text-sm text-muted">Os itens anotados aparecerão aqui.</p>}{carrinho.map((item) => <div key={item.produto.id} className="flex items-start justify-between gap-3 py-3"><div><p className="font-semibold text-ink">{item.produto.nome}</p><p className="mt-1 text-sm text-muted">Solicitado: <strong className="text-ink">{item.pesoOuQtd} {item.produto.unidadeMedida}</strong></p><button type="button" onClick={() => abrirPesagem(item.produto, true)} className="mt-1 text-xs font-semibold text-primary">Editar pedido</button></div><button type="button" onClick={() => setCarrinho((atual) => atual.filter((atualItem) => atualItem.produto.id !== item.produto.id))} className="text-xs font-semibold text-danger">Remover</button></div>)}</div>
+          <div className="mt-3 divide-y divide-border">{carrinho.length === 0 && <p className="py-4 text-sm text-muted">Os itens anotados aparecerão aqui.</p>}{carrinho.map((item) => <div key={chaveItem(item)} className="flex items-start justify-between gap-3 py-3"><div><p className="font-semibold text-ink">{item.produto.nome}</p><p className="mt-1 text-sm text-muted">Solicitado: <strong className="text-ink">{item.pesoOuQtd} {item.unidadePedido}</strong></p><button type="button" onClick={() => abrirPesagem(item.produto, item)} className="mt-1 text-xs font-semibold text-primary">Editar pedido</button></div><button type="button" onClick={() => setCarrinho((atual) => atual.filter((atualItem) => chaveItem(atualItem) !== chaveItem(item)))} className="text-xs font-semibold text-danger">Remover</button></div>)}</div>
           {ehAdmin && <Input className="mt-3" label="Desconto combinado (R$)" type="number" min={0} step="0.01" value={desconto} onChange={(e) => setDesconto(e.target.value)} />}
           <div className="mt-4 border-t border-border pt-4"><div className="flex justify-between text-sm text-muted"><span>Valor estimado</span><span>{formatarMoeda(totalEstimado)}</span></div><p className="mt-2 rounded-lg bg-gold/10 px-3 py-2 text-xs text-ink">O valor será recalculado quando cada corte receber o peso real.</p></div>
           {erro && <p className="mt-4 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
           <Button className="mt-4 w-full" tamanho="grande" disabled={enviando || !clienteSelecionado || carrinho.length === 0} onClick={salvarComanda}>{enviando ? "Registrando..." : "Salvar comanda e enviar para cortes"}</Button>
         </Card>
       </div>
-      {produtoParaPesar && <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 px-4"><Card className="w-full max-w-sm"><CardTitulo>{itemEditandoId ? "Editar pedido" : "Adicionar ao pedido"}</CardTitulo><p className="mt-1 text-sm text-muted">{produtoParaPesar.nome} · {formatarMoeda(produtoParaPesar.preco)}/{produtoParaPesar.unidadeMedida}</p><div className="mt-4"><Input label={produtoParaPesar.tipoVenda === "PESO" ? "Peso solicitado (kg)" : "Quantidade solicitada"} inputMode="decimal" placeholder="Ex.: 10 ou 0,500" value={pesoDigitado} onChange={(e) => setPesoDigitado(e.target.value)} onKeyDown={(e) => e.key === "Enter" && confirmarPesagem()} autoFocus /></div>{Number(pesoDigitado.replace(",", ".")) > 0 && <p className="mt-2 text-sm text-ink">Estimativa: <strong>{formatarMoeda(Number(produtoParaPesar.preco) * Number(pesoDigitado.replace(",", ".")))}</strong></p>}<div className="mt-4 flex gap-2"><Button variante="secundaria" className="flex-1" onClick={fecharPesagem}>Cancelar</Button><Button className="flex-1" onClick={confirmarPesagem}>{itemEditandoId ? "Salvar alteração" : "Adicionar carne"}</Button></div></Card></div>}
+      {produtoParaPesar && <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 px-4"><Card className="w-full max-w-sm"><CardTitulo>{itemEditandoChave ? "Editar pedido" : "Adicionar ao pedido"}</CardTitulo><p className="mt-1 text-sm text-muted">{produtoParaPesar.nome} · {formatarMoeda(produtoParaPesar.preco)}/{produtoParaPesar.unidadeMedida}</p><div className="mt-4 flex flex-col gap-3"><div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-ink">Unidade do pedido</label><select value={unidadeDigitada} onChange={(e) => setUnidadeDigitada(e.target.value as UnidadePedido)} className="h-11 rounded-lg border border-border bg-white px-3.5 text-sm">{UNIDADES_PEDIDO.map((unidade) => <option key={unidade.valor} value={unidade.valor}>{unidade.rotulo}</option>)}</select></div><Input label={unidadeDigitada === "kg" ? "Quantidade em quilos" : unidadeDigitada === "g" ? "Quantidade em gramas" : "Quantidade de peças/unidades"} inputMode="decimal" placeholder={unidadeDigitada === "g" ? "Ex.: 500" : "Ex.: 10 ou 1"} value={pesoDigitado} onChange={(e) => setPesoDigitado(e.target.value)} onKeyDown={(e) => e.key === "Enter" && confirmarPesagem()} autoFocus /></div>{Number(pesoDigitado.replace(",", ".")) > 0 && <p className="mt-2 text-sm text-ink">Estimativa: <strong>{formatarMoeda(Number(produtoParaPesar.preco) * ((unidadeDigitada === "g" && produtoParaPesar.unidadeMedida.toLowerCase() === "kg") ? Number(pesoDigitado.replace(",", ".")) / 1000 : Number(pesoDigitado.replace(",", "."))))}</strong></p>}<div className="mt-4 flex gap-2"><Button variante="secundaria" className="flex-1" onClick={fecharPesagem}>Cancelar</Button><Button className="flex-1" onClick={confirmarPesagem}>{itemEditandoChave ? "Salvar alteração" : "Adicionar carne"}</Button></div></Card></div>}
     </div>
   );
 }

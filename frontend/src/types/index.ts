@@ -49,12 +49,14 @@ export type StatusOperacaoPedido =
   | "ENTREGUE";
 
 export type StatusPreparoItem = "PENDENTE" | "EM_CORTE" | "CORTADO";
+export type UnidadePedido = "kg" | "g" | "peca" | "unidade" | "outra";
 
 export interface PedidoItem {
   id: string;
   produtoId: string;
   produto?: Produto;
   pesoOuQtd: string | number;
+  unidadePedido: UnidadePedido;
   pesoReal?: string | number | null;
   statusPreparo: StatusPreparoItem;
   preparadoPor?: { id?: string; nome: string } | null;

@@ -35,6 +35,7 @@ const criarPedidoSchema = z.object({
       z.object({
         produtoId: z.string().uuid(),
         pesoOuQtd: z.number().positive(),
+        unidadePedido: z.enum(["kg", "g", "peca", "unidade", "outra"]).optional(),
       })
     )
     .min(1, "O pedido precisa de ao menos um item."),
