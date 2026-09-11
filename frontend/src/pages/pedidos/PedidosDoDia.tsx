@@ -28,6 +28,26 @@ function nomeResponsavel(responsavel?: { nome: string } | null) {
   return responsavel?.nome || "Aguardando";
 }
 
+function rotuloUnidade(unidade?: string, fallback = "unidade") {
+  const unidadeNormalizada = unidade?.toLowerCase();
+  if (unidadeNormalizada === "kg") return "kg";
+  if (unidadeNormalizada === "g") return "g";
+  if (unidadeNormalizada === "peca" || unidadeNormalizada === "un") return "peça";
+  if (unidadeNormalizada === "unidade") return "unidade";
+  if (unidadeNormalizada === "outra") return "unidade";
+  return fallback;
+}
+
+function prepararPedidoParaExibicao(pedido: Pedido): Pedido {
+  return {
+    ...pedido,
+    itens: pedido.itens.map((item) => ({
+      ...item,
+      produto: item.produto ? { ...item.produto, unidadeMedida: rotuloUnidade(item.unidadePedido, item.produto.unidadeMedida) } : item.produto,
+    })),
+  };
+}
+
 function proximoStatus(status: string): StatusOperacaoPedido | null {
   const indice = FLUXO.indexOf(status as StatusOperacaoPedido);
   return indice >= 0 && indice < FLUXO.length - 1 ? FLUXO[indice + 1] : null;
@@ -42,7 +62,8 @@ export function PedidosDoDia() {
 
   const carregarPedidos = useCallback(async () => {
     try {
-      setPedidos(await api<Pedido[]>("/pedidos"));
+      const resposta = await api<Pedido[]>("/pedidos");
+      setPedidos(resposta.map(prepararPedidoParaExibicao));
       setErro("");
     } catch (e) {
       setErro(e instanceof ErroApi ? e.message : "Não foi possível carregar os pedidos.");
@@ -60,8 +81,9 @@ export function PedidosDoDia() {
   const pedidosVisiveis = useMemo(() => filtro === "TODOS" ? pedidos : pedidos.filter((pedido) => (pedido.statusOperacao || "RECEBIDO") === filtro), [filtro, pedidos]);
 
   function atualizarPedidoNaLista(atualizado: Pedido) {
-    setPedidos((atuais) => atuais.map((pedido) => pedido.id === atualizado.id ? atualizado : pedido));
-    setComandaAberta(atualizado);
+    const pedidoPreparado = prepararPedidoParaExibicao(atualizado);
+    setPedidos((atuais) => atuais.map((pedido) => pedido.id === pedidoPreparado.id ? pedidoPreparado : pedido));
+    setComandaAberta(pedidoPreparado);
   }
 
   return (

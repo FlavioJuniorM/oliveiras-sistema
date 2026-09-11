@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ErroApi } from "../../lib/api";
-import { formatarMoeda } from "../../lib/formatadores";
 import { Cliente, Produto, UnidadePedido } from "../../types";
 import { useAuth } from "../../contexts/AuthContext";
 import { Card, CardTitulo } from "../../components/ui/Card";
@@ -30,12 +29,6 @@ function unidadeInicial(produto: Produto): UnidadePedido {
 
 function chaveItem(item: ItemCarrinho) {
   return `${item.produto.id}:${item.unidadePedido}`;
-}
-
-function quantidadeParaPreco(item: ItemCarrinho) {
-  return item.unidadePedido === "g" && item.produto.unidadeMedida.toLowerCase() === "kg"
-    ? item.pesoOuQtd / 1000
-    : item.pesoOuQtd;
 }
 
 export function NovoPedido() {
@@ -79,9 +72,7 @@ export function NovoPedido() {
     return produtos.filter((produto) => `${produto.nome} ${produto.codigo} ${produto.categoria?.nome || ""}`.toLowerCase().includes(termo));
   }, [buscaProduto, produtos]);
 
-  const subtotalSolicitado = useMemo(() => carrinho.reduce((soma, item) => soma + Number(item.produto.preco) * quantidadeParaPreco(item), 0), [carrinho]);
   const descontoNumero = Number(desconto) || 0;
-  const totalEstimado = Math.max(subtotalSolicitado - descontoNumero, 0);
 
   function abrirPesagem(produto: Produto, itemParaEditar?: ItemCarrinho) {
     setProdutoParaPesar(produto);
@@ -159,19 +150,19 @@ export function NovoPedido() {
           <Card>
             <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between"><div><CardTitulo>2. O que o cliente pediu?</CardTitulo><p className="mt-1 text-sm text-muted">Ex.: 10 kg de costela, 5 kg de filé de frango ou 1 peça de picanha.</p></div><span className="text-sm font-semibold text-primary">{carrinho.length} {carrinho.length === 1 ? "item" : "itens"}</span></div>
             <Input className="mt-4" placeholder="Pesquisar carne por nome, código ou categoria..." value={buscaProduto} onChange={(e) => setBuscaProduto(e.target.value)} />
-            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">{produtosVisiveis.map((produto) => <button key={produto.id} type="button" onClick={() => abrirPesagem(produto)} className="balcao-tap flex min-h-24 flex-col items-start justify-between rounded-lg border border-border bg-white px-4 py-3 text-left transition hover:border-primary hover:shadow-card"><span className="text-sm font-semibold text-ink">{produto.nome}</span><span className="mt-2 text-sm font-bold text-gold">{formatarMoeda(produto.preco)}/{produto.unidadeMedida}</span></button>)}{produtosVisiveis.length === 0 && <p className="col-span-full py-5 text-sm text-muted">Nenhuma carne encontrada.</p>}</div>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">{produtosVisiveis.map((produto) => <button key={produto.id} type="button" onClick={() => abrirPesagem(produto)} className="balcao-tap flex min-h-24 flex-col items-start justify-between rounded-lg border border-border bg-white px-4 py-3 text-left transition hover:border-primary hover:shadow-card"><span className="text-sm font-semibold text-ink">{produto.nome}</span><span className="mt-2 text-xs font-semibold text-primary">Clique para informar quantidade</span></button>)}{produtosVisiveis.length === 0 && <p className="col-span-full py-5 text-sm text-muted">Nenhuma carne encontrada.</p>}</div>
           </Card>
         </div>
         <Card className="h-fit xl:sticky xl:top-4">
           <div className="flex items-center justify-between gap-3"><CardTitulo>3. Conferir anotação</CardTitulo><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">Antes do corte</span></div>
           <div className="mt-3 divide-y divide-border">{carrinho.length === 0 && <p className="py-4 text-sm text-muted">Os itens anotados aparecerão aqui.</p>}{carrinho.map((item) => <div key={chaveItem(item)} className="flex items-start justify-between gap-3 py-3"><div><p className="font-semibold text-ink">{item.produto.nome}</p><p className="mt-1 text-sm text-muted">Solicitado: <strong className="text-ink">{item.pesoOuQtd} {item.unidadePedido}</strong></p><button type="button" onClick={() => abrirPesagem(item.produto, item)} className="mt-1 text-xs font-semibold text-primary">Editar pedido</button></div><button type="button" onClick={() => setCarrinho((atual) => atual.filter((atualItem) => chaveItem(atualItem) !== chaveItem(item)))} className="text-xs font-semibold text-danger">Remover</button></div>)}</div>
           {ehAdmin && <Input className="mt-3" label="Desconto combinado (R$)" type="number" min={0} step="0.01" value={desconto} onChange={(e) => setDesconto(e.target.value)} />}
-          <div className="mt-4 border-t border-border pt-4"><div className="flex justify-between text-sm text-muted"><span>Valor estimado</span><span>{formatarMoeda(totalEstimado)}</span></div><p className="mt-2 rounded-lg bg-gold/10 px-3 py-2 text-xs text-ink">O valor será recalculado quando cada corte receber o peso real.</p></div>
+          <div className="mt-4 border-t border-border pt-4"><p className="rounded-lg bg-gold/10 px-3 py-2 text-xs text-ink">O valor da nota será calculado somente após os cortes e os pesos reais, na conferência final.</p></div>
           {erro && <p className="mt-4 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
           <Button className="mt-4 w-full" tamanho="grande" disabled={enviando || !clienteSelecionado || carrinho.length === 0} onClick={salvarComanda}>{enviando ? "Registrando..." : "Salvar comanda e enviar para cortes"}</Button>
         </Card>
       </div>
-      {produtoParaPesar && <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 px-4"><Card className="w-full max-w-sm"><CardTitulo>{itemEditandoChave ? "Editar pedido" : "Adicionar ao pedido"}</CardTitulo><p className="mt-1 text-sm text-muted">{produtoParaPesar.nome} · {formatarMoeda(produtoParaPesar.preco)}/{produtoParaPesar.unidadeMedida}</p><div className="mt-4 flex flex-col gap-3"><div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-ink">Unidade do pedido</label><select value={unidadeDigitada} onChange={(e) => setUnidadeDigitada(e.target.value as UnidadePedido)} className="h-11 rounded-lg border border-border bg-white px-3.5 text-sm">{UNIDADES_PEDIDO.map((unidade) => <option key={unidade.valor} value={unidade.valor}>{unidade.rotulo}</option>)}</select></div><Input label={unidadeDigitada === "kg" ? "Quantidade em quilos" : unidadeDigitada === "g" ? "Quantidade em gramas" : "Quantidade de peças/unidades"} inputMode="decimal" placeholder={unidadeDigitada === "g" ? "Ex.: 500" : "Ex.: 10 ou 1"} value={pesoDigitado} onChange={(e) => setPesoDigitado(e.target.value)} onKeyDown={(e) => e.key === "Enter" && confirmarPesagem()} autoFocus /></div>{Number(pesoDigitado.replace(",", ".")) > 0 && <p className="mt-2 text-sm text-ink">Estimativa: <strong>{formatarMoeda(Number(produtoParaPesar.preco) * ((unidadeDigitada === "g" && produtoParaPesar.unidadeMedida.toLowerCase() === "kg") ? Number(pesoDigitado.replace(",", ".")) / 1000 : Number(pesoDigitado.replace(",", "."))))}</strong></p>}<div className="mt-4 flex gap-2"><Button variante="secundaria" className="flex-1" onClick={fecharPesagem}>Cancelar</Button><Button className="flex-1" onClick={confirmarPesagem}>{itemEditandoChave ? "Salvar alteração" : "Adicionar carne"}</Button></div></Card></div>}
+      {produtoParaPesar && <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 px-4"><Card className="w-full max-w-sm"><CardTitulo>{itemEditandoChave ? "Editar pedido" : "Adicionar ao pedido"}</CardTitulo><p className="mt-1 text-sm text-muted">{produtoParaPesar.nome}</p><div className="mt-4 flex flex-col gap-3"><div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-ink">Unidade do pedido</label><select value={unidadeDigitada} onChange={(e) => setUnidadeDigitada(e.target.value as UnidadePedido)} className="h-11 rounded-lg border border-border bg-white px-3.5 text-sm">{UNIDADES_PEDIDO.map((unidade) => <option key={unidade.valor} value={unidade.valor}>{unidade.rotulo}</option>)}</select></div><Input label={unidadeDigitada === "kg" ? "Quantidade em quilos" : unidadeDigitada === "g" ? "Quantidade em gramas" : "Quantidade de peças/unidades"} inputMode="decimal" placeholder={unidadeDigitada === "g" ? "Ex.: 500" : "Ex.: 10 ou 1"} value={pesoDigitado} onChange={(e) => setPesoDigitado(e.target.value)} onKeyDown={(e) => e.key === "Enter" && confirmarPesagem()} autoFocus /></div><div className="mt-4 flex gap-2"><Button variante="secundaria" className="flex-1" onClick={fecharPesagem}>Cancelar</Button><Button className="flex-1" onClick={confirmarPesagem}>{itemEditandoChave ? "Salvar alteração" : "Adicionar carne"}</Button></div></Card></div>}
     </div>
   );
 }
