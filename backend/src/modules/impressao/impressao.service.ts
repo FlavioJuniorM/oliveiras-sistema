@@ -1,6 +1,7 @@
 import { obterPedido } from "../pedidos/pedidos.service";
 
 const NOME_LOJA = "CASA DE CARNES OLIVEIRAS";
+const ENDERECO_LOJA = "RUA AMETISTA, 22 - JD MUTINGA";
 
 const NOMES_FORMA_PAGAMENTO: Record<string, string> = {
   DINHEIRO: "Dinheiro",
@@ -19,6 +20,20 @@ function formatarMoeda(valor: number) {
 
 function formatarDataHora(data: Date) {
   return new Date(data).toLocaleString("pt-BR");
+}
+
+function formatarQuantidade(valor: number | null | undefined, unidade: string) {
+  if (valor == null) return "aguardando";
+  return `${valor.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} ${unidade}`;
+}
+
+function escaparHtml(valor: string) {
+  return valor
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 async function montarDadosComanda(pedidoId: string) {
@@ -52,10 +67,15 @@ export async function gerarComandaTermica(pedidoId: string, largura: 32 | 42 = 3
 
   const linhas: string[] = [];
   linhas.push(centralizar(NOME_LOJA));
+  linhas.push(centralizar(ENDERECO_LOJA));
+  linhas.push(centralizar("COMANDA DE VENDA"));
   linhas.push(linha);
   linhas.push(`Pedido: ${pedido.numero}`);
   linhas.push(`Data: ${formatarDataHora(pedido.criadoEm)}`);
   linhas.push(`Cliente: ${pedido.cliente?.nome ?? "Consumidor final"}`);
+  if (pedido.cliente?.endereco) {
+    linhas.push(`Entrega: ${pedido.cliente.endereco}`);
+  }
   if (pedido.cliente?.documento) {
     linhas.push(`Doc: ${pedido.cliente.documento}`);
   }
@@ -64,7 +84,13 @@ export async function gerarComandaTermica(pedidoId: string, largura: 32 | 42 = 3
   for (const item of pedido.itens) {
     linhas.push(item.produto.nome);
     linhas.push(
-      `  ${Number(item.pesoOuQtd)} x ${formatarMoeda(Number(item.precoUnitario))} = ${formatarMoeda(Number(item.subtotal))}`
+      `  Sol.: ${formatarQuantidade(Number(item.pesoOuQtd), item.produto.unidadeMedida)}`
+    );
+    linhas.push(
+      `  Real: ${formatarQuantidade(item.pesoReal == null ? null : Number(item.pesoReal), item.produto.unidadeMedida)}`
+    );
+    linhas.push(
+      `  ${formatarMoeda(Number(item.precoUnitario))}/${item.produto.unidadeMedida} = ${formatarMoeda(Number(item.subtotal))}`
     );
   }
 
@@ -89,6 +115,84 @@ export async function gerarComandaTermica(pedidoId: string, largura: 32 | 42 = 3
   linhas.push(centralizar("Obrigado pela preferência!"));
 
   return linhas.join("\n");
+}
+
+/** Gera uma página estreita, pronta para Ctrl+P/impressão em térmica de 58 mm. */
+export async function gerarComandaTermicaHtml(pedidoId: string) {
+  const dados = await montarDadosComanda(pedidoId);
+  if (!dados) return null;
+  const { pedido, formasResumo } = dados;
+  const cliente = pedido.cliente?.nomeFantasia || pedido.cliente?.razaoSocial || pedido.cliente?.nome || "Consumidor final";
+  const itens = pedido.itens.map((item) => {
+    const unidade = item.produto.unidadeMedida || "un";
+    const solicitado = formatarQuantidade(Number(item.pesoOuQtd), unidade);
+    const real = formatarQuantidade(item.pesoReal == null ? null : Number(item.pesoReal), unidade);
+    return `<section class="item">
+      <div class="produto">${escaparHtml(item.produto.nome)}</div>
+      <div class="linha"><span>Solicitado: ${solicitado}</span><span>Real: ${real}</span></div>
+      <div class="linha"><span>${formatarMoeda(Number(item.precoUnitario))}/${escaparHtml(unidade)}</span><strong>${formatarMoeda(Number(item.subtotal))}</strong></div>
+    </section>`;
+  }).join("");
+  const pagamento = formasResumo.length ? formasResumo.map(escaparHtml).join("<br />") : "A definir";
+  const vencimento = pedido.contaReceber
+    ? `<div class="linha"><span>Vencimento</span><span>${new Date(pedido.contaReceber.vencimento).toLocaleDateString("pt-BR")}</span></div>`
+    : "";
+
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Comanda ${escaparHtml(pedido.numero)}</title>
+  <style>
+    @page { size: 58mm auto; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #fff; color: #000; }
+    body { width: 58mm; font-family: "Courier New", monospace; font-size: 11px; }
+    .nota { width: 54mm; margin: 0 auto; padding: 3mm 0 5mm; }
+    .centro { text-align: center; }
+    .loja { font-size: 14px; font-weight: 700; line-height: 1.15; }
+    .endereco { margin-top: 2px; font-size: 10px; }
+    .tipo { margin-top: 4px; font-weight: 700; }
+    .linha { display: flex; justify-content: space-between; gap: 8px; line-height: 1.35; }
+    .linha > :last-child { text-align: right; }
+    .separador { border-top: 1px dashed #000; margin: 7px 0; }
+    .dados { line-height: 1.4; }
+    .item { padding: 5px 0; border-bottom: 1px dashed #777; }
+    .produto { font-weight: 700; text-transform: uppercase; margin-bottom: 2px; }
+    .total { font-size: 16px; font-weight: 700; }
+    .rodape { margin-top: 10px; text-align: center; font-size: 10px; }
+    @media print { body { width: 58mm; } .nota { padding-bottom: 8mm; } }
+  </style>
+</head>
+<body onload="setTimeout(function(){ window.print(); }, 250)">
+  <main class="nota">
+    <header class="centro">
+      <div class="loja">${escaparHtml(NOME_LOJA)}</div>
+      <div class="endereco">${escaparHtml(ENDERECO_LOJA)}</div>
+      <div class="tipo">COMANDA DE VENDA</div>
+    </header>
+    <div class="separador"></div>
+    <div class="dados">
+      <div class="linha"><span>Pedido</span><strong>${escaparHtml(pedido.numero)}</strong></div>
+      <div class="linha"><span>Data</span><span>${escaparHtml(formatarDataHora(pedido.criadoEm))}</span></div>
+      <div>Cliente: <strong>${escaparHtml(cliente)}</strong></div>
+      ${pedido.cliente?.documento ? `<div>Documento: ${escaparHtml(pedido.cliente.documento)}</div>` : ""}
+      ${pedido.cliente?.endereco ? `<div>Entrega: ${escaparHtml(pedido.cliente.endereco)}</div>` : ""}
+    </div>
+    <div class="separador"></div>
+    ${itens}
+    <div class="separador"></div>
+    <div class="linha"><span>Subtotal</span><span>${formatarMoeda(Number(pedido.subtotal))}</span></div>
+    ${Number(pedido.desconto) > 0 ? `<div class="linha"><span>Desconto</span><span>- ${formatarMoeda(Number(pedido.desconto))}</span></div>` : ""}
+    <div class="linha total"><span>TOTAL</span><span>${formatarMoeda(Number(pedido.total))}</span></div>
+    <div class="separador"></div>
+    <div>Pagamento:</div>
+    <div>${pagamento}</div>
+    ${vencimento}
+    <div class="rodape">Obrigado pela preferência!<br />Atendente: ${escaparHtml(pedido.usuario.nome)}</div>
+  </main>
+</body>
+</html>`;
 }
 
 /**
