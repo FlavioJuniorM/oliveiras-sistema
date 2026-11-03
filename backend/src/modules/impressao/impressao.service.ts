@@ -94,6 +94,7 @@ export async function gerarComandaTermica(pedidoId: string, largura: 32 | 42 = 3
 
   for (const item of pedido.itens) {
     linhas.push(item.produto.nome);
+    if (item.observacao) linhas.push(`  >> ${item.observacao}`);
     linhas.push(
       `  Sol.: ${formatarQuantidade(Number(item.pesoOuQtd), unidadePedidoCurta(item.unidadePedido))}`
     );
@@ -154,6 +155,8 @@ const ESTILO_TERMICA_58 = `
     .item-corte .produto { font-size: 14px; }
     .pedido-corte { font-size: 14px; font-weight: 700; }
     .peso-manual { margin-top: 6px; font-size: 12px; }
+    .obs-corte { margin-top: 3px; padding: 2px 4px; border: 2px solid #000; font-size: 13px; font-weight: 700; text-transform: uppercase; }
+    .obs-nota { font-size: 10px; font-style: italic; }
     .total { font-size: 16px; font-weight: 700; }
     .rodape { margin-top: 10px; text-align: center; font-size: 10px; }
     @media print { body { width: 58mm; } .nota { padding-bottom: 8mm; } }`;
@@ -205,6 +208,7 @@ export async function gerarComandaTermicaHtml(pedidoId: string, tipo: TipoImpres
     const itens = itensOrdenados.map((item) => `<section class="item item-corte">
       <div class="produto">${escaparHtml(item.produto.nome)}</div>
       <div class="pedido-corte">Pediu: ${escaparHtml(quantidadePedidaPorExtenso(Number(item.pesoOuQtd), item.unidadePedido))}</div>
+      ${item.observacao ? `<div class="obs-corte">» ${escaparHtml(item.observacao)}</div>` : ""}
       <div class="peso-manual">Peso: ____________ ${item.produto.tipoVenda === "PESO" ? "kg" : "un"}</div>
     </section>`).join("");
 
@@ -238,6 +242,7 @@ export async function gerarComandaTermicaHtml(pedidoId: string, tipo: TipoImpres
     const peso = Number(item.pesoReal).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
     return `<section class="item">
       <div class="produto">${escaparHtml(item.produto.nome)}</div>
+      ${item.observacao ? `<div class="obs-nota">${escaparHtml(item.observacao)}</div>` : ""}
       <div class="linha"><span>${peso} ${escaparHtml(unidade)} x ${formatarMoeda(Number(item.precoUnitario))}</span><strong>${formatarMoeda(Number(item.subtotal))}</strong></div>
     </section>`;
   }).join("");

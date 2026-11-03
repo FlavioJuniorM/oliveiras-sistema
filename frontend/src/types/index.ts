@@ -63,6 +63,7 @@ export interface PedidoItem {
   produto?: Produto;
   pesoOuQtd: string | number;
   unidadePedido: UnidadePedido;
+  observacao?: string | null;
   pesoReal?: string | number | null;
   statusPreparo: StatusPreparoItem;
   preparadoPor?: { id?: string; nome: string } | null;

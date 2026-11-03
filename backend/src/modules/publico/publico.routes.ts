@@ -8,6 +8,7 @@ export const publicoRouter = Router();
 const itemPublicoSchema = z.object({
   produtoId: z.string().uuid(),
   pesoOuQtd: z.number().positive(),
+  observacao: z.string().max(200).optional(),
   unidadePedido: z.enum(["kg", "g", "peca", "unidade", "outra"]).optional(),
 });
 

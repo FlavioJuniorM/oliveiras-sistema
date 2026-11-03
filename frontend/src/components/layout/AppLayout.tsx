@@ -23,7 +23,8 @@ export function AppLayout() {
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar />
-      <div className="flex flex-1 flex-col">
+      {/* min-w-0: impede que conteúdo largo (ex.: faixa de abas rolável) alargue a página no celular */}
+      <div className="flex min-w-0 flex-1 flex-col">
         <Topbar titulo={titulo} />
         <main className="flex-1 p-4 pb-24 lg:pb-6 lg:p-6">
           <Outlet />

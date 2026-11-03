@@ -22,6 +22,13 @@ interface ItemPedidoInput {
   produtoId: string;
   pesoOuQtd: number;
   unidadePedido?: UnidadePedido;
+  /** Como o cliente quer o corte: "bife fino", "moer 2x", "cubos" */
+  observacao?: string;
+}
+
+function limparObservacao(observacao?: string | null) {
+  const texto = observacao?.trim();
+  return texto ? texto.slice(0, 200) : null;
 }
 
 export type UnidadePedido = "kg" | "g" | "peca" | "unidade" | "outra";
@@ -132,6 +139,7 @@ export async function criarPedido(input: CriarPedidoInput) {
       nome: produto.nome,
       pesoOuQtd: item.pesoOuQtd,
       unidadePedido,
+      observacao: limparObservacao(item.observacao),
       precoUnitario,
       // Valor real só existe depois da pesagem
       subtotal: 0,
@@ -169,6 +177,7 @@ export async function criarPedido(input: CriarPedidoInput) {
             produtoId: i.produtoId,
             pesoOuQtd: i.pesoOuQtd,
             unidadePedido: i.unidadePedido,
+            observacao: i.observacao,
             precoUnitario: i.precoUnitario,
             subtotal: i.subtotal,
           })),
@@ -197,7 +206,7 @@ export async function criarPedido(input: CriarPedidoInput) {
         acao: "ADICIONOU_ITEM_PEDIDO",
         entidade: "pedido",
         entidadeId: pedido.id,
-        detalhes: `Adicionou ${item.nome} — ${item.pesoOuQtd} ${item.unidadePedido}`,
+        detalhes: `Adicionou ${item.nome} — ${item.pesoOuQtd} ${item.unidadePedido}${item.observacao ? ` (${item.observacao})` : ""}`,
       });
     }
 
@@ -748,7 +757,7 @@ export async function registrarPagamento(
  * Se havia conta a receber em aberto, ela também é cancelada — o pedido
  * NUNCA é apagado do banco, apenas marcado (regra 3 e 18).
  */
-export async function cancelarPedido(pedidoId: string, usuarioId: string) {
+export async function cancelarPedido(pedidoId: string, usuarioId: string, motivo?: string) {
   const pedido = await prisma.pedido.findUnique({
     where: { id: pedidoId },
     include: { contaReceber: true },
@@ -769,10 +778,12 @@ export async function cancelarPedido(pedidoId: string, usuarioId: string) {
       });
     }
 
-    return tx.pedido.update({
+    const atualizado = await tx.pedido.update({
       where: { id: pedidoId },
       data: { statusPagamento: "CANCELADO" },
     });
+    await registrarHistoricoStatus(tx, pedidoId, pedido.statusOperacao as StatusOperacaoPedido, `Comanda cancelada${motivo ? `: ${motivo}` : ""}`);
+    return atualizado;
   });
 
   await registrarLog({
@@ -780,8 +791,125 @@ export async function cancelarPedido(pedidoId: string, usuarioId: string) {
     acao: "CANCELOU_PEDIDO",
     entidade: "pedido",
     entidadeId: pedidoId,
-    detalhes: `Cancelou o pedido ${pedido.numero}`,
+    detalhes: `Cancelou o pedido ${pedido.numero}${motivo ? ` — motivo: ${motivo}` : ""}`,
   });
 
-  return pedidoCancelado;
+  void pedidoCancelado;
+  return obterPedido(pedidoId);
+}
+
+
+// ---------------------------------------------------------------------------
+// Edição da comanda depois de salva (cliente ligou de volta e pediu mais algo)
+// Permitida enquanto a comanda não foi fechada (Recebidos / Em preparo).
+// ---------------------------------------------------------------------------
+
+async function carregarComandaEditavel(pedidoId: string) {
+  const pedido = await prisma.pedido.findUnique({ where: { id: pedidoId }, include: { itens: true } });
+  if (!pedido) throw new ErroPedido("Pedido não encontrado.");
+  if (pedido.statusPagamento === "CANCELADO") throw new ErroPedido("Esta comanda está cancelada.");
+  if (pedido.statusOperacao !== "RECEBIDO" && pedido.statusOperacao !== "EM_PREPARO") {
+    throw new ErroPedido("A comanda já foi fechada. Não é possível alterar os itens.");
+  }
+  return pedido;
+}
+
+/** Total da comanda = soma dos itens já pesados. */
+async function recalcularTotalComanda(tx: Prisma.TransactionClient, pedidoId: string) {
+  const itens = await tx.pedidoItem.findMany({ where: { pedidoId } });
+  const total = Number(
+    itens.reduce((soma, item) => soma + (item.statusPreparo === "CORTADO" ? Number(item.subtotal) : 0), 0).toFixed(2)
+  );
+  await tx.pedido.update({ where: { id: pedidoId }, data: { subtotal: total, desconto: 0, total } });
+}
+
+export async function adicionarItemPedido(pedidoId: string, input: ItemPedidoInput, usuarioId: string) {
+  const pedido = await carregarComandaEditavel(pedidoId);
+  const produto = await prisma.produto.findUnique({ where: { id: input.produtoId } });
+  if (!produto) throw new ErroPedido("Produto não encontrado.");
+  if (produto.status !== "ATIVO") throw new ErroPedido(`O produto "${produto.nome}" está inativo.`);
+  if (input.pesoOuQtd <= 0) throw new ErroPedido("Informe a quantidade.");
+
+  const unidadePedido = input.unidadePedido ?? unidadePadraoProduto(produto.unidadeMedida);
+  await prisma.pedidoItem.create({
+    data: {
+      pedidoId,
+      produtoId: produto.id,
+      pesoOuQtd: input.pesoOuQtd,
+      unidadePedido,
+      observacao: limparObservacao(input.observacao),
+      precoUnitario: Number(produto.preco),
+      subtotal: 0,
+    },
+  });
+
+  await registrarLog({
+    usuarioId,
+    acao: "ADICIONOU_ITEM_PEDIDO",
+    entidade: "pedido",
+    entidadeId: pedidoId,
+    detalhes: `Incluiu na comanda ${pedido.numero}: ${produto.nome} — ${input.pesoOuQtd} ${unidadePedido}`,
+  });
+
+  return obterPedido(pedidoId);
+}
+
+export async function alterarItemPedido(
+  pedidoId: string,
+  itemId: string,
+  input: { pesoOuQtd?: number; unidadePedido?: UnidadePedido; observacao?: string | null },
+  usuarioId: string
+) {
+  const pedido = await carregarComandaEditavel(pedidoId);
+  const item = pedido.itens.find((atual) => atual.id === itemId);
+  if (!item) throw new ErroPedido("Item não encontrado nesta comanda.");
+
+  const mudaQuantidade = input.pesoOuQtd !== undefined || input.unidadePedido !== undefined;
+  if (mudaQuantidade && item.statusPreparo === "CORTADO") {
+    throw new ErroPedido("Este item já foi pesado. Use “Corrigir peso” antes de mudar a quantidade pedida.");
+  }
+  if (input.pesoOuQtd !== undefined && input.pesoOuQtd <= 0) throw new ErroPedido("Informe a quantidade.");
+
+  await prisma.pedidoItem.update({
+    where: { id: itemId },
+    data: {
+      pesoOuQtd: input.pesoOuQtd,
+      unidadePedido: input.unidadePedido,
+      observacao: input.observacao === undefined ? undefined : limparObservacao(input.observacao),
+    },
+  });
+
+  await registrarLog({
+    usuarioId,
+    acao: "ALTEROU_ITEM_PEDIDO",
+    entidade: "pedido",
+    entidadeId: pedidoId,
+    detalhes: `Alterou item da comanda ${pedido.numero}: ${input.pesoOuQtd ?? item.pesoOuQtd} ${input.unidadePedido ?? item.unidadePedido}${input.observacao ? ` (${input.observacao})` : ""}`,
+  });
+
+  return obterPedido(pedidoId);
+}
+
+export async function removerItemPedido(pedidoId: string, itemId: string, usuarioId: string) {
+  const pedido = await carregarComandaEditavel(pedidoId);
+  const item = pedido.itens.find((atual) => atual.id === itemId);
+  if (!item) throw new ErroPedido("Item não encontrado nesta comanda.");
+  if (pedido.itens.length === 1) {
+    throw new ErroPedido("Este é o único item da comanda. Para tirar tudo, cancele a comanda.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.pedidoItem.delete({ where: { id: itemId } });
+    await recalcularTotalComanda(tx, pedidoId);
+  });
+
+  await registrarLog({
+    usuarioId,
+    acao: "REMOVEU_ITEM_PEDIDO",
+    entidade: "pedido",
+    entidadeId: pedidoId,
+    detalhes: `Removeu item da comanda ${pedido.numero}: ${item.pesoOuQtd} ${item.unidadePedido}`,
+  });
+
+  return obterPedido(pedidoId);
 }

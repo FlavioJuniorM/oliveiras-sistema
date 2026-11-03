@@ -12,7 +12,11 @@ interface ItemCarrinho {
   produto: Produto;
   pesoOuQtd: number;
   unidadePedido: UnidadePedido;
+  observacao: string;
 }
+
+// Atalhos para os pedidos de corte mais comuns no balcão
+const SUGESTOES_OBSERVACAO = ["Bife fino", "Bife grosso", "Moer 1x", "Moer 2x", "Cubos", "Tiras", "Peça inteira", "Sem gordura", "Porcionar"];
 
 // Como o cliente pediu. O valor só é calculado depois, com o peso da balança.
 const UNIDADES_PEDIDO: { valor: UnidadePedido; rotulo: string }[] = [
@@ -28,7 +32,7 @@ function unidadeInicial(produto: Produto): UnidadePedido {
 }
 
 function chaveItem(item: ItemCarrinho) {
-  return `${item.produto.id}:${item.unidadePedido}`;
+  return `${item.produto.id}:${item.unidadePedido}:${item.observacao.trim().toLowerCase()}`;
 }
 
 export function NovoPedido() {
@@ -43,6 +47,7 @@ export function NovoPedido() {
   const [itemEditandoChave, setItemEditandoChave] = useState<string | null>(null);
   const [pesoDigitado, setPesoDigitado] = useState("");
   const [unidadeDigitada, setUnidadeDigitada] = useState<UnidadePedido>("kg");
+  const [observacaoDigitada, setObservacaoDigitada] = useState("");
   const [buscaConcluida, setBuscaConcluida] = useState(false);
   const [novoCliente, setNovoCliente] = useState<{ nome: string; telefone: string; endereco: string; tipo: "PESSOA_FISICA" | "EMPRESA" } | null>(null);
   const [salvandoCliente, setSalvandoCliente] = useState(false);
@@ -109,6 +114,7 @@ export function NovoPedido() {
     setItemEditandoChave(itemParaEditar ? chaveItem(itemParaEditar) : null);
     setPesoDigitado(itemParaEditar ? String(itemParaEditar.pesoOuQtd) : "");
     setUnidadeDigitada(itemParaEditar?.unidadePedido || unidadeInicial(produto));
+    setObservacaoDigitada(itemParaEditar?.observacao || "");
   }
 
   function fecharPesagem() {
@@ -116,16 +122,20 @@ export function NovoPedido() {
     setItemEditandoChave(null);
     setPesoDigitado("");
     setUnidadeDigitada("kg");
+    setObservacaoDigitada("");
   }
 
   function confirmarPesagem() {
     const peso = Number(pesoDigitado.replace(",", "."));
     if (!produtoParaPesar || !peso || peso <= 0) return;
+    const observacao = observacaoDigitada.trim();
     setCarrinho((atual) => {
-      if (itemEditandoChave) return atual.map((item) => chaveItem(item) === itemEditandoChave ? { ...item, pesoOuQtd: peso, unidadePedido: unidadeDigitada } : item);
-      const existente = atual.find((item) => item.produto.id === produtoParaPesar.id && item.unidadePedido === unidadeDigitada);
+      if (itemEditandoChave) return atual.map((item) => chaveItem(item) === itemEditandoChave ? { ...item, pesoOuQtd: peso, unidadePedido: unidadeDigitada, observacao } : item);
+      const novo = { produto: produtoParaPesar, pesoOuQtd: peso, unidadePedido: unidadeDigitada, observacao };
+      // Mesma carne, mesma unidade e mesmo corte: soma. Corte diferente vira outra linha.
+      const existente = atual.find((item) => chaveItem(item) === chaveItem(novo));
       if (existente) return atual.map((item) => chaveItem(item) === chaveItem(existente) ? { ...item, pesoOuQtd: item.pesoOuQtd + peso } : item);
-      return [...atual, { produto: produtoParaPesar, pesoOuQtd: peso, unidadePedido: unidadeDigitada }];
+      return [...atual, novo];
     });
     fecharPesagem();
   }
@@ -143,7 +153,7 @@ export function NovoPedido() {
         method: "POST",
         body: {
           clienteId: clienteSelecionado.id,
-          itens: carrinho.map((item) => ({ produtoId: item.produto.id, pesoOuQtd: item.pesoOuQtd, unidadePedido: item.unidadePedido })),
+          itens: carrinho.map((item) => ({ produtoId: item.produto.id, pesoOuQtd: item.pesoOuQtd, unidadePedido: item.unidadePedido, observacao: item.observacao || undefined })),
         },
       });
       setPedidoCriado(pedido);
@@ -191,17 +201,26 @@ export function NovoPedido() {
         </div>
         <Card className="h-fit xl:sticky xl:top-4">
           <div className="flex items-center justify-between gap-3"><CardTitulo>3. Conferir anotação</CardTitulo><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">Antes do corte</span></div>
-          <div className="mt-3 divide-y divide-border">{carrinho.length === 0 && <p className="py-4 text-sm text-muted">Os itens anotados aparecerão aqui.</p>}{carrinho.map((item) => <div key={chaveItem(item)} className="flex items-start justify-between gap-3 py-3"><div><p className="font-semibold text-ink">{item.produto.nome}</p><p className="mt-1 text-sm text-muted">Pediu: <strong className="text-ink">{formatarQuantidadePedido(item.pesoOuQtd, item.unidadePedido)}</strong></p><button type="button" onClick={() => abrirPesagem(item.produto, item)} className="mt-1 text-xs font-semibold text-primary">Editar pedido</button></div><button type="button" onClick={() => setCarrinho((atual) => atual.filter((atualItem) => chaveItem(atualItem) !== chaveItem(item)))} className="text-xs font-semibold text-danger">Remover</button></div>)}</div>
+          <div className="mt-3 divide-y divide-border">{carrinho.length === 0 && <p className="py-4 text-sm text-muted">Os itens anotados aparecerão aqui.</p>}{carrinho.map((item) => <div key={chaveItem(item)} className="flex items-start justify-between gap-3 py-3"><div><p className="font-semibold text-ink">{item.produto.nome}</p><p className="mt-1 text-sm text-muted">Pediu: <strong className="text-ink">{formatarQuantidadePedido(item.pesoOuQtd, item.unidadePedido)}</strong></p>{item.observacao && <p className="mt-1 inline-block rounded bg-gold/15 px-2 py-0.5 text-xs font-semibold text-ink">» {item.observacao}</p>}<button type="button" onClick={() => abrirPesagem(item.produto, item)} className="mt-1 text-xs font-semibold text-primary">Editar pedido</button></div><button type="button" onClick={() => setCarrinho((atual) => atual.filter((atualItem) => chaveItem(atualItem) !== chaveItem(item)))} className="text-xs font-semibold text-danger">Remover</button></div>)}</div>
           <div className="mt-4 border-t border-border pt-4"><p className="rounded-lg bg-gold/10 px-3 py-2 text-xs text-ink">Sem valor nesta etapa. Depois do corte, o peso da balança de cada item gera o valor da comanda.</p></div>
           {erro && <p className="mt-4 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
           <Button className="mt-4 w-full" tamanho="grande" disabled={enviando || !clienteSelecionado || carrinho.length === 0} onClick={() => salvarComanda(true)}>{enviando ? "Registrando..." : "Salvar e imprimir para o balcão"}</Button><Button variante="secundaria" className="mt-2 w-full" disabled={enviando || !clienteSelecionado || carrinho.length === 0} onClick={() => salvarComanda(false)}>Salvar sem imprimir</Button><p className="mt-2 text-center text-xs text-muted">Impressão térmica 58 mm, sem valores — para os açougueiros.</p>
         </Card>
       </div>
-      {produtoParaPesar && <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 px-4"><Card className="w-full max-w-sm"><CardTitulo>{itemEditandoChave ? "Editar pedido" : "Adicionar ao pedido"}</CardTitulo><p className="mt-1 text-sm text-muted">{produtoParaPesar.nome}</p><div className="mt-4 flex flex-col gap-3"><div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-ink">Unidade do pedido</label><select value={unidadeDigitada} onChange={(e) => setUnidadeDigitada(e.target.value as UnidadePedido)} className="h-11 rounded-lg border border-border bg-white px-3.5 text-sm">{UNIDADES_PEDIDO.map((unidade) => <option key={unidade.valor} value={unidade.valor}>{unidade.rotulo}</option>)}</select></div><Input label={unidadeDigitada === "kg" ? "Quantos quilos?" : unidadeDigitada === "g" ? "Quantos gramas?" : "Quantas unidades / peças?"} inputMode="decimal" placeholder={unidadeDigitada === "g" ? "Ex.: 500" : unidadeDigitada === "kg" ? "Ex.: 2,5" : "Ex.: 15"} value={pesoDigitado} onChange={(e) => setPesoDigitado(e.target.value)} onKeyDown={(e) => e.key === "Enter" && confirmarPesagem()} autoFocus />{unidadeDigitada === "unidade" && produtoParaPesar.tipoVenda === "PESO" && <p className="rounded-lg bg-gold/10 px-3 py-2 text-xs text-ink">Anotado em unidades, mas cobrado pelo <strong>peso da balança</strong> depois do corte.</p>}</div><div className="mt-4 flex gap-2"><Button variante="secundaria" className="flex-1" onClick={fecharPesagem}>Cancelar</Button><Button className="flex-1" onClick={confirmarPesagem}>{itemEditandoChave ? "Salvar alteração" : "Adicionar carne"}</Button></div></Card></div>}
+      {produtoParaPesar && <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 px-4"><Card className="w-full max-w-sm"><CardTitulo>{itemEditandoChave ? "Editar pedido" : "Adicionar ao pedido"}</CardTitulo><p className="mt-1 text-sm text-muted">{produtoParaPesar.nome}</p><div className="mt-4 flex flex-col gap-3"><div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-ink">Unidade do pedido</label><select value={unidadeDigitada} onChange={(e) => setUnidadeDigitada(e.target.value as UnidadePedido)} className="h-11 rounded-lg border border-border bg-white px-3.5 text-sm">{UNIDADES_PEDIDO.map((unidade) => <option key={unidade.valor} value={unidade.valor}>{unidade.rotulo}</option>)}</select></div><Input label={unidadeDigitada === "kg" ? "Quantos quilos?" : unidadeDigitada === "g" ? "Quantos gramas?" : "Quantas unidades / peças?"} inputMode="decimal" placeholder={unidadeDigitada === "g" ? "Ex.: 500" : unidadeDigitada === "kg" ? "Ex.: 2,5" : "Ex.: 15"} value={pesoDigitado} onChange={(e) => setPesoDigitado(e.target.value)} onKeyDown={(e) => e.key === "Enter" && confirmarPesagem()} autoFocus />{unidadeDigitada === "unidade" && produtoParaPesar.tipoVenda === "PESO" && <p className="rounded-lg bg-gold/10 px-3 py-2 text-xs text-ink">Anotado em unidades, mas cobrado pelo <strong>peso da balança</strong> depois do corte.</p>}<CampoObservacao valor={observacaoDigitada} onMudar={setObservacaoDigitada} onEnter={confirmarPesagem} /></div><div className="mt-4 flex gap-2"><Button variante="secundaria" className="flex-1" onClick={fecharPesagem}>Cancelar</Button><Button className="flex-1" onClick={confirmarPesagem}>{itemEditandoChave ? "Salvar alteração" : "Adicionar carne"}</Button></div></Card></div>}
     </div>
   );
 }
 
 function Etapa({ numero, titulo, ativa }: { numero: string; titulo: string; ativa: boolean }) {
   return <div className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 ${ativa ? "border-primary bg-primary/10" : "border-border bg-surface"}`}><span className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${ativa ? "bg-primary text-white" : "bg-background text-muted"}`}>{ativa ? "✓" : numero}</span><span className={`text-sm font-semibold ${ativa ? "text-primary" : "text-muted"}`}>{titulo}</span></div>;
+}
+
+
+/** Campo "Como quer o corte?" com atalhos de um toque. Reutilizado na edição da comanda. */
+export function CampoObservacao({ valor, onMudar, onEnter }: { valor: string; onMudar: (valor: string) => void; onEnter?: () => void }) {
+  return <div className="flex flex-col gap-1.5">
+    <Input label="Como quer o corte? (opcional)" placeholder="Ex.: bife fino, moer 2x, cubos" maxLength={200} value={valor} onChange={(e) => onMudar(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onEnter?.()} />
+    <div className="flex flex-wrap gap-1.5">{SUGESTOES_OBSERVACAO.map((sugestao) => <button key={sugestao} type="button" onClick={() => onMudar(valor.trim() ? `${valor.trim()}, ${sugestao.toLowerCase()}` : sugestao)} className="rounded-full border border-border bg-white px-2.5 py-1 text-xs font-semibold text-ink hover:border-primary hover:text-primary">{sugestao}</button>)}</div>
+  </div>;
 }

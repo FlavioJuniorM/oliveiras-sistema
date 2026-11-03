@@ -185,6 +185,7 @@ model PedidoItem {
   produto        Produto           @relation(fields: [produtoId], references: [id])
   pesoOuQtd      Decimal           @map("peso_ou_qtd") @db.Decimal(12, 3)
   unidadePedido  String            @default("kg") @map("unidade_pedido")
+  observacao     String? // como o cliente quer o corte: "bife fino", "moer 2x", "cubos"
   pesoReal       Decimal?          @map("peso_real") @db.Decimal(12, 3)
   statusPreparo  StatusPreparoItem @default(PENDENTE) @map("status_preparo")
   preparadoPorId String?           @map("preparado_por_id")

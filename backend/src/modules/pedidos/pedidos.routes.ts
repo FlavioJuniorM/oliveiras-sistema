@@ -12,6 +12,9 @@ import {
   atualizarStatusOperacaoPedido,
   atualizarPreparoItem,
   finalizarConferenciaPedido,
+  adicionarItemPedido,
+  alterarItemPedido,
+  removerItemPedido,
 } from "./pedidos.service";
 
 export const pedidosRouter = Router();
@@ -36,6 +39,7 @@ const criarPedidoSchema = z.object({
         produtoId: z.string().uuid(),
         pesoOuQtd: z.number().positive(),
         unidadePedido: z.enum(["kg", "g", "peca", "unidade", "outra"]).optional(),
+        observacao: z.string().max(200).optional(),
       })
     )
     .min(1, "O pedido precisa de ao menos um item."),
@@ -221,7 +225,8 @@ pedidosRouter.post("/:id/pagamentos", async (req, res) => {
 // Cancelar pedido é exclusivo do administrativo (regra 2 da especificação)
 pedidosRouter.patch("/:id/cancelar", somentePapel("ADMINISTRATIVO"), async (req, res) => {
   try {
-    const pedido = await cancelarPedido(req.params.id, req.usuario!.id);
+    const motivo = typeof req.body?.motivo === "string" ? req.body.motivo.trim().slice(0, 200) : undefined;
+    const pedido = await cancelarPedido(req.params.id, req.usuario!.id, motivo || undefined);
     return res.json(pedido);
   } catch (erro) {
     if (erro instanceof ErroPedido) {
@@ -229,5 +234,56 @@ pedidosRouter.patch("/:id/cancelar", somentePapel("ADMINISTRATIVO"), async (req,
     }
     console.error(erro);
     return res.status(500).json({ erro: "Erro interno ao cancelar o pedido." });
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// Edição da comanda antes do fechamento
+// ---------------------------------------------------------------------------
+const itemComandaSchema = z.object({
+  produtoId: z.string().uuid(),
+  pesoOuQtd: z.number().positive("Informe a quantidade."),
+  unidadePedido: z.enum(["kg", "g", "peca", "unidade", "outra"]).optional(),
+  observacao: z.string().max(200).optional(),
+});
+
+const alteracaoItemSchema = z.object({
+  pesoOuQtd: z.number().positive("Informe a quantidade.").optional(),
+  unidadePedido: z.enum(["kg", "g", "peca", "unidade", "outra"]).optional(),
+  observacao: z.string().max(200).nullable().optional(),
+});
+
+function responderErroComanda(res: import("express").Response, erro: unknown) {
+  if (erro instanceof ErroPedido) return res.status(400).json({ erro: erro.message });
+  console.error(erro);
+  return res.status(500).json({ erro: "Erro interno ao alterar a comanda." });
+}
+
+pedidosRouter.post("/:id/itens", async (req, res) => {
+  const validacao = itemComandaSchema.safeParse(req.body);
+  if (!validacao.success) return res.status(400).json({ erro: validacao.error.issues[0].message });
+  try {
+    return res.status(201).json(await adicionarItemPedido(req.params.id, validacao.data, req.usuario!.id));
+  } catch (erro) {
+    return responderErroComanda(res, erro);
+  }
+});
+
+pedidosRouter.patch("/:id/itens/:itemId", async (req, res) => {
+  const validacao = alteracaoItemSchema.safeParse(req.body);
+  if (!validacao.success) return res.status(400).json({ erro: validacao.error.issues[0].message });
+  try {
+    return res.json(await alterarItemPedido(req.params.id, req.params.itemId, validacao.data, req.usuario!.id));
+  } catch (erro) {
+    return responderErroComanda(res, erro);
+  }
+});
+
+pedidosRouter.delete("/:id/itens/:itemId", async (req, res) => {
+  try {
+    return res.json(await removerItemPedido(req.params.id, req.params.itemId, req.usuario!.id));
+  } catch (erro) {
+    return responderErroComanda(res, erro);
   }
 });
