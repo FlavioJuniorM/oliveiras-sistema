@@ -52,7 +52,7 @@ export async function relatorioProdutos({ inicio, fim }: PeriodoInput) {
       quantidadeVendida: 0,
       faturamento: 0,
     };
-    atual.quantidadeVendida += Number(item.pesoOuQtd);
+    atual.quantidadeVendida += item.statusPreparo === "CORTADO" && item.pesoReal != null ? Number(item.pesoReal) : 0;
     atual.faturamento += Number(item.subtotal);
     porProduto.set(item.produtoId, atual);
   }

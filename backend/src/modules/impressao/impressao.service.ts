@@ -27,6 +27,15 @@ function formatarQuantidade(valor: number | null | undefined, unidade: string) {
   return `${valor.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} ${unidade}`;
 }
 
+/** Unidade em que o peso/quantidade real é registrado: kg para carnes por peso. */
+function unidadeVenda(produto: { tipoVenda: string; unidadeMedida: string }) {
+  return produto.tipoVenda === "PESO" ? "kg" : produto.unidadeMedida;
+}
+
+function unidadePedidoCurta(unidade: string) {
+  return unidade === "kg" || unidade === "g" ? unidade : "un";
+}
+
 function escaparHtml(valor: string) {
   return valor
     .replace(/&/g, "&amp;")
@@ -85,13 +94,13 @@ export async function gerarComandaTermica(pedidoId: string, largura: 32 | 42 = 3
   for (const item of pedido.itens) {
     linhas.push(item.produto.nome);
     linhas.push(
-      `  Sol.: ${formatarQuantidade(Number(item.pesoOuQtd), item.unidadePedido)}`
+      `  Sol.: ${formatarQuantidade(Number(item.pesoOuQtd), unidadePedidoCurta(item.unidadePedido))}`
     );
     linhas.push(
-      `  Real: ${formatarQuantidade(item.pesoReal == null ? null : Number(item.pesoReal), item.unidadePedido)}`
+      `  Real: ${formatarQuantidade(item.statusPreparo === "CORTADO" && item.pesoReal != null ? Number(item.pesoReal) : null, unidadeVenda(item.produto))}`
     );
     linhas.push(
-      `  ${formatarMoeda(Number(item.precoUnitario))}/${item.unidadePedido} = ${formatarMoeda(Number(item.subtotal))}`
+      `  ${formatarMoeda(Number(item.precoUnitario))}/${item.produto.unidadeMedida} = ${item.statusPreparo === "CORTADO" ? formatarMoeda(Number(item.subtotal)) : "a pesar"}`
     );
   }
 
@@ -126,13 +135,12 @@ export async function gerarComandaTermicaHtml(pedidoId: string) {
   const nomeResponsavel = pedido.usuario?.nome ?? "Pedido online";
   const cliente = pedido.cliente?.nomeFantasia || pedido.cliente?.razaoSocial || pedido.cliente?.nome || "Consumidor final";
   const itens = pedido.itens.map((item) => {
-    const unidade = item.unidadePedido || item.produto.unidadeMedida || "un";
-    const solicitado = formatarQuantidade(Number(item.pesoOuQtd), unidade);
-    const real = formatarQuantidade(item.pesoReal == null ? null : Number(item.pesoReal), unidade);
+    const solicitado = formatarQuantidade(Number(item.pesoOuQtd), unidadePedidoCurta(item.unidadePedido));
+    const real = formatarQuantidade(item.statusPreparo === "CORTADO" && item.pesoReal != null ? Number(item.pesoReal) : null, unidadeVenda(item.produto));
     return `<section class="item">
       <div class="produto">${escaparHtml(item.produto.nome)}</div>
       <div class="linha"><span>Solicitado: ${solicitado}</span><span>Real: ${real}</span></div>
-      <div class="linha"><span>${formatarMoeda(Number(item.precoUnitario))}/${escaparHtml(unidade)}</span><strong>${formatarMoeda(Number(item.subtotal))}</strong></div>
+      <div class="linha"><span>${formatarMoeda(Number(item.precoUnitario))}/${escaparHtml(item.produto.unidadeMedida)}</span><strong>${item.statusPreparo === "CORTADO" ? formatarMoeda(Number(item.subtotal)) : "a pesar"}</strong></div>
     </section>`;
   }).join("");
   const pagamento = formasResumo.length ? formasResumo.map(escaparHtml).join("<br />") : "A definir";

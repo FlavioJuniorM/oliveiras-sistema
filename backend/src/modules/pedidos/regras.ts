@@ -87,3 +87,35 @@ export function validarPagamentoPedido(input: {
 
   return { saldoDevido, statusPagamento };
 }
+
+/**
+ * Quantidade solicitada convertida para quilos, quando comparável com a balança.
+ * Pedidos em peça/unidade não têm peso conhecido antes do corte → null.
+ */
+export function quantidadeSolicitadaEmKg(quantidade: number, unidade: UnidadePedido): number | null {
+  if (unidade === "kg") return quantidade;
+  if (unidade === "g") return quantidade / 1000;
+  return null;
+}
+
+/**
+ * Valor do item depois da pesagem. O valor real é sempre informado na unidade
+ * de venda do produto (kg para carnes por peso, unidade para itens por unidade),
+ * então o cálculo é direto: preço × valor real.
+ */
+export function calcularSubtotalPesado(precoUnitario: number, valorReal: number) {
+  return Number((precoUnitario * valorReal).toFixed(2));
+}
+
+/** Estimativa (somente para pedidos públicos) — itens em peça/unidade ficam fora. */
+export function estimarValorItem(
+  precoUnitario: number,
+  quantidade: number,
+  unidade: UnidadePedido,
+  unidadeProduto: string
+) {
+  const produtoEmQuilo = unidadeProduto.toLowerCase() === "kg" || unidadeProduto.toLowerCase().includes("quilo");
+  if (!produtoEmQuilo) return calcularSubtotalPesado(precoUnitario, quantidade);
+  const kg = quantidadeSolicitadaEmKg(quantidade, unidade);
+  return kg == null ? 0 : calcularSubtotalPesado(precoUnitario, kg);
+}

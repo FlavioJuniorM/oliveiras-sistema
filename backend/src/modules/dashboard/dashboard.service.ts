@@ -1,4 +1,3 @@
-import { quantidadeParaPreco, type UnidadePedido } from "../pedidos/regras";
 import { prisma } from "../../config/database";
 
 function inicioDoDia(data = new Date()) {
@@ -68,11 +67,8 @@ export async function obterDashboard() {
       quantidade: 0,
       faturamento: 0,
     };
-    atual.quantidade += quantidadeParaPreco(
-      Number(item.pesoReal ?? item.pesoOuQtd),
-      item.unidadePedido as UnidadePedido,
-      item.produto.unidadeMedida
-    );
+    // Só conta o que já foi pesado (peso real em kg, ou unidades para itens por unidade)
+    atual.quantidade += item.statusPreparo === "CORTADO" && item.pesoReal != null ? Number(item.pesoReal) : 0;
     atual.faturamento += Number(item.subtotal);
     porProduto.set(item.produtoId, atual);
   }

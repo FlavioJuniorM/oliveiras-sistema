@@ -9,9 +9,9 @@ import {
   pesoMuitoAbaixoDoSolicitado,
 } from "../configuracoes/configuracoes.service";
 import {
-  calcularSubtotalItem,
-  calcularTotaisPedido,
-  quantidadeParaPreco,
+  calcularSubtotalPesado,
+  estimarValorItem,
+  quantidadeSolicitadaEmKg,
   TOLERANCIA_CENTAVOS,
   unidadePadraoProduto,
   validarDesconto,
@@ -96,14 +96,17 @@ export async function criarPedido(input: CriarPedidoInput) {
     throw new ErroPedido("O pedido precisa ter ao menos um item.");
   }
 
-  // Regra 1 da especificação: desconto só é permitido para o papel administrativo
-  try {
-    validarDesconto(desconto, papelUsuario);
-  } catch (erro) {
-    throw new ErroPedido((erro as Error).message);
+  // Fluxo da comanda: ANOTAR → CORTAR/PESAR → FECHAR.
+  // Na anotação não existe valor, desconto nem pagamento: tudo isso só é
+  // definido depois que o peso real de cada corte é registrado.
+  if (desconto > 0) {
+    throw new ErroPedido("Desconto não é aplicado na anotação do pedido.");
+  }
+  if (pagamentos.length > 0 || valorAPrazo > 0) {
+    throw new ErroPedido("O pagamento é definido no fechamento da comanda, depois da pesagem.");
   }
 
-  // Busca os produtos e usa o PREÇO ATUAL do cadastro — o funcionário nunca informa preço
+  // Busca os produtos e congela o PREÇO ATUAL do cadastro — o funcionário nunca informa preço
   const produtoIds = itens.map((i) => i.produtoId);
   const produtos = await prisma.produto.findMany({ where: { id: { in: produtoIds } } });
 
@@ -121,14 +124,8 @@ export async function criarPedido(input: CriarPedidoInput) {
       throw new ErroPedido(`Peso/quantidade inválido para "${produto.nome}".`);
     }
 
-    const precoUnitario = Number(produto.preco);
     const unidadePedido = item.unidadePedido ?? unidadePadraoProduto(produto.unidadeMedida);
-    const subtotalItem = calcularSubtotalItem(
-      precoUnitario,
-      item.pesoOuQtd,
-      unidadePedido,
-      produto.unidadeMedida
-    );
+    const precoUnitario = Number(produto.preco);
 
     return {
       produtoId: produto.id,
@@ -136,39 +133,13 @@ export async function criarPedido(input: CriarPedidoInput) {
       pesoOuQtd: item.pesoOuQtd,
       unidadePedido,
       precoUnitario,
-      subtotal: subtotalItem,
+      // Valor real só existe depois da pesagem
+      subtotal: 0,
+      estimativa: estimarValorItem(precoUnitario, item.pesoOuQtd, unidadePedido, produto.unidadeMedida),
     };
   });
 
-  const { subtotal, total } = calcularTotaisPedido(
-    itensCalculados.map((item) => item.subtotal),
-    desconto
-  );
-
-  if (total <= 0) {
-    throw new ErroPedido("O valor total do pedido deve ser maior que zero.");
-  }
-
-  const totalPagoImediato = pagamentos.reduce((soma, pagamento) => soma + pagamento.valor, 0);
-
-  if (pagamentos.length > 0 && !usuarioId) {
-    throw new ErroPedido("Pagamentos imediatos exigem um atendente autenticado.");
-  }
-
-  // Validações do split de pagamento (seção 7 — pagamento dividido)
-  let saldoDevido: number;
-  let statusPagamento: "PAGO" | "PARCIALMENTE_PAGO" | "PENDENTE";
-  try {
-    ({ saldoDevido, statusPagamento } = validarPagamentoPedido({
-      total,
-      totalPagoImediato,
-      valorAPrazo,
-      vencimento,
-      clienteId,
-    }));
-  } catch (erro) {
-    throw new ErroPedido((erro as Error).message);
-  }
+  const estimativaTotal = Number(itensCalculados.reduce((soma, item) => soma + item.estimativa, 0).toFixed(2));
 
   const pedido = await prisma.$transaction(async (tx) => {
     const numero = await gerarNumeroPedido(tx);
@@ -189,11 +160,10 @@ export async function criarPedido(input: CriarPedidoInput) {
         emailCliente,
         enderecoEntrega,
         observacoesCliente,
-        subtotal,
-        desconto,
-        total,
-        statusPagamento,
-        vencimento: saldoDevido > TOLERANCIA_CENTAVOS ? vencimento : undefined,
+        subtotal: 0,
+        desconto: 0,
+        total: 0,
+        statusPagamento: "PENDENTE",
         itens: {
           create: itensCalculados.map((i) => ({
             produtoId: i.produtoId,
@@ -203,34 +173,11 @@ export async function criarPedido(input: CriarPedidoInput) {
             subtotal: i.subtotal,
           })),
         },
-        pagamentos:
-          pagamentos.length > 0
-            ? {
-                create: pagamentos.map((p) => ({
-                  forma: p.forma,
-                  valor: p.valor,
-                  usuarioId: usuarioId!,
-                })),
-              }
-            : undefined,
       },
       include: { itens: true, pagamentos: true },
     });
 
     await registrarHistoricoStatus(tx, pedidoCriado.id, "RECEBIDO", "Pedido criado");
-
-    if (saldoDevido > TOLERANCIA_CENTAVOS && clienteId && valorAPrazo && valorAPrazo > TOLERANCIA_CENTAVOS) {
-      await tx.contaReceber.create({
-        data: {
-          pedidoId: pedidoCriado.id,
-          clienteId,
-          valorOriginal: saldoDevido,
-          saldo: saldoDevido,
-          vencimento: vencimento!,
-          status: "PENDENTE",
-        },
-      });
-    }
 
     return pedidoCriado;
   });
@@ -241,7 +188,7 @@ export async function criarPedido(input: CriarPedidoInput) {
       acao: "CRIOU_PEDIDO",
       entidade: "pedido",
       entidadeId: pedido.id,
-      detalhes: `Criou o pedido ${pedido.numero} — total R$ ${total}`,
+      detalhes: `Anotou o pedido ${pedido.numero} com ${itensCalculados.length} item(ns) — valor definido após a pesagem`,
     });
 
     for (const item of itensCalculados) {
@@ -250,22 +197,13 @@ export async function criarPedido(input: CriarPedidoInput) {
         acao: "ADICIONOU_ITEM_PEDIDO",
         entidade: "pedido",
         entidadeId: pedido.id,
-        detalhes: `Adicionou ${item.nome} — ${item.pesoOuQtd} (R$ ${item.subtotal})`,
+        detalhes: `Adicionou ${item.nome} — ${item.pesoOuQtd} ${item.unidadePedido}`,
       });
     }
 
-    if (statusPagamento === "PAGO") {
-      await registrarLog({
-        usuarioId,
-        acao: "FINALIZOU_PEDIDO",
-        entidade: "pedido",
-        entidadeId: pedido.id,
-        detalhes: `Finalizou o pedido ${pedido.numero} — pago integralmente`,
-      });
-    }
   }
 
-  return pedido;
+  return { ...pedido, estimativaTotal };
 }
 
 export async function criarPedidoPublico(input: {
@@ -341,101 +279,76 @@ export async function atualizarPreparoItem(
   if (item.pedido.statusPagamento === "CANCELADO") {
     throw new ErroPedido("Não é possível alterar uma comanda cancelada.");
   }
-  if (
-    item.statusPreparo === "EM_CORTE" &&
-    item.preparadoPorId &&
-    item.preparadoPorId !== usuarioId
-  ) {
-    throw new ErroPedido("Este corte já está sendo feito por outro açougueiro.");
-  }
-  if (input.statusPreparo === "CORTADO" && (!input.pesoReal || input.pesoReal <= 0)) {
-    throw new ErroPedido("Informe o peso real para confirmar o corte.");
+  if (item.pedido.statusOperacao !== "RECEBIDO" && item.pedido.statusOperacao !== "EM_PREPARO") {
+    throw new ErroPedido("Esta comanda já foi fechada. Não é possível alterar os pesos.");
   }
 
-  if (input.statusPreparo === "CORTADO" && item.produto.tipoVenda === "PESO") {
+  // Fluxo simplificado: o item está PENDENTE (aguardando pesagem) ou CORTADO (pesado).
+  // EM_CORTE continua aceito apenas por compatibilidade e é tratado como pendente.
+  const pesado = input.statusPreparo === "CORTADO";
+  const vendidoPorPeso = item.produto.tipoVenda === "PESO";
+
+  if (pesado && (!input.pesoReal || input.pesoReal <= 0)) {
+    throw new ErroPedido(
+      vendidoPorPeso
+        ? "Informe o peso da balança (em kg) para confirmar o corte."
+        : "Informe a quantidade separada para confirmar o item."
+    );
+  }
+
+  // Para carnes por peso, o valor real é SEMPRE em kg (o que a balança mostra).
+  // Só dá para comparar com o pedido quando ele foi anotado em kg ou g.
+  const solicitadoEmKg = quantidadeSolicitadaEmKg(Number(item.pesoOuQtd), item.unidadePedido as UnidadePedido);
+  if (pesado && vendidoPorPeso && solicitadoEmKg != null) {
     const configuracao = await obterConfiguracaoPesagem();
-    if (
-      excedeToleranciaPesagem(
-        Number(item.pesoOuQtd),
-        input.pesoReal!,
-        configuracao.toleranciaPesagemPercentual
-      )
-    ) {
+    if (excedeToleranciaPesagem(solicitadoEmKg, input.pesoReal!, configuracao.toleranciaPesagemPercentual)) {
       throw new ErroPedido(
-        `O peso real ultrapassa a tolerância configurada de ${configuracao.toleranciaPesagemPercentual}%.`
+        `O peso ultrapassa a tolerância de ${configuracao.toleranciaPesagemPercentual}% sobre o pedido (${solicitadoEmKg.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} kg).`
       );
     }
-    if (pesoMuitoAbaixoDoSolicitado(Number(item.pesoOuQtd), input.pesoReal!)) {
-      const unidade = item.unidadePedido === "g" ? "gramas (g)" : item.unidadePedido;
+    if (pesoMuitoAbaixoDoSolicitado(solicitadoEmKg, input.pesoReal!)) {
       throw new ErroPedido(
-        `O peso real está muito abaixo do solicitado. Este item foi pedido em ${unidade} — confira se digitou na unidade certa.`
+        `O peso está muito abaixo do pedido (${solicitadoEmKg.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} kg). Informe o peso da balança em kg.`
       );
     }
   }
 
-  const pesoReal =
-    input.statusPreparo === "CORTADO"
-      ? input.pesoReal!
-      : input.statusPreparo === "PENDENTE"
-      ? null
-      : null;
-  const subtotal = Number((Number(item.precoUnitario) * quantidadeParaPreco(Number(pesoReal ?? item.pesoOuQtd), item.unidadePedido as UnidadePedido, item.produto.unidadeMedida)).toFixed(2));
-
-  const dadosPreparo = {
-    statusPreparo: input.statusPreparo,
-    pesoReal,
-    preparadoPorId:
-      input.statusPreparo === "EM_CORTE" ? usuarioId : input.statusPreparo === "CORTADO" ? item.preparadoPorId ?? usuarioId : null,
-    cortadoPorId: input.statusPreparo === "CORTADO" ? usuarioId : null,
-  };
+  const pesoReal = pesado ? input.pesoReal! : null;
+  const subtotal = pesado ? calcularSubtotalPesado(Number(item.precoUnitario), pesoReal!) : 0;
 
   await prisma.$transaction(async (tx) => {
-    if (input.statusPreparo === "EM_CORTE" && item.statusPreparo === "PENDENTE") {
-      const inicio = await tx.pedidoItem.updateMany({
-        where: { id: itemId, pedidoId, statusPreparo: "PENDENTE" },
-        data: { ...dadosPreparo, subtotal },
-      });
-      if (inicio.count === 0) {
-        throw new ErroPedido("Este corte acabou de ser assumido por outro açougueiro.");
-      }
-    } else {
-      await tx.pedidoItem.update({
-        where: { id: itemId },
-        data: { ...dadosPreparo, subtotal },
-      });
-    }
+    await tx.pedidoItem.update({
+      where: { id: itemId },
+      data: {
+        statusPreparo: pesado ? "CORTADO" : "PENDENTE",
+        pesoReal,
+        subtotal,
+        preparadoPorId: null,
+        // Mantido apenas para auditoria interna (não aparece nas telas)
+        cortadoPorId: pesado ? usuarioId : null,
+      },
+    });
 
+    // Total da comanda = soma apenas dos itens já pesados
     const itens = await tx.pedidoItem.findMany({ where: { pedidoId } });
-    const subtotalPedido = Number(itens.reduce((total, atual) => total + Number(atual.subtotal), 0).toFixed(2));
-    const totalPedido = Number((subtotalPedido - Number(item.pedido.desconto)).toFixed(2));
-    const pagamentos = await tx.pagamento.findMany({ where: { pedidoId } });
-    const totalPago = pagamentos.reduce((total, pagamento) => total + Number(pagamento.valor), 0);
-    const statusPagamento = totalPago >= totalPedido ? "PAGO" : totalPago > 0 ? "PARCIALMENTE_PAGO" : "PENDENTE";
+    const totalPedido = Number(
+      itens.reduce((total, atual) => total + (atual.statusPreparo === "CORTADO" ? Number(atual.subtotal) : 0), 0).toFixed(2)
+    );
     const novoStatusOperacao: StatusOperacaoPedido =
-      item.pedido.statusOperacao === "RECEBIDO" && input.statusPreparo !== "PENDENTE"
-        ? "EM_PREPARO"
-        : item.pedido.statusOperacao;
+      item.pedido.statusOperacao === "RECEBIDO" && pesado ? "EM_PREPARO" : item.pedido.statusOperacao;
 
     await tx.pedido.update({
       where: { id: pedidoId },
       data: {
-        subtotal: subtotalPedido,
+        subtotal: totalPedido,
+        desconto: 0,
         total: totalPedido,
-        statusPagamento,
         statusOperacao: novoStatusOperacao,
       },
     });
 
     if (novoStatusOperacao !== item.pedido.statusOperacao) {
-      await registrarHistoricoStatus(tx, pedidoId, novoStatusOperacao, "Primeiro corte iniciado");
-    }
-
-    if (item.pedido.contaReceber) {
-      const saldo = Math.max(Number((totalPedido - totalPago).toFixed(2)), 0);
-      await tx.contaReceber.update({
-        where: { pedidoId },
-        data: { valorOriginal: totalPedido, saldo, status: saldo === 0 ? "PAGO" : totalPago > 0 ? "PARCIAL" : "PENDENTE" },
-      });
+      await registrarHistoricoStatus(tx, pedidoId, novoStatusOperacao, "Primeiro corte pesado");
     }
   });
 
@@ -444,7 +357,9 @@ export async function atualizarPreparoItem(
     acao: "ATUALIZOU_CORTE_PEDIDO",
     entidade: "pedido_item",
     entidadeId: itemId,
-    detalhes: `Atualizou o corte ${item.produto.nome} para ${input.statusPreparo}${pesoReal ? ` com ${pesoReal}` : ""}`,
+    detalhes: pesado
+      ? `Pesou ${item.produto.nome}: ${pesoReal} ${vendidoPorPeso ? "kg" : "un"} = R$ ${subtotal}`
+      : `Reabriu a pesagem de ${item.produto.nome}`,
   });
 
   return obterPedido(pedidoId);
@@ -552,6 +467,8 @@ export async function obterAcompanhamentoPublico(token: string) {
     subtotal: pedido.subtotal,
     taxaEntrega: pedido.taxaEntrega,
     total: pedido.total,
+    // O valor só é definitivo quando todos os itens foram pesados
+    valorConfirmado: pedido.itens.length > 0 && pedido.itens.every((item) => item.statusPreparo === "CORTADO"),
     statusPagamento: pedido.statusPagamento,
     statusOperacao: pedido.statusOperacao,
     enderecoEntrega: pedido.enderecoEntrega,
@@ -561,6 +478,7 @@ export async function obterAcompanhamentoPublico(token: string) {
       pesoOuQtd: item.pesoOuQtd,
       unidadePedido: item.unidadePedido,
       pesoReal: item.pesoReal,
+      unidadeReal: item.produto.tipoVenda === "PESO" ? "kg" : item.produto.unidadeMedida,
       subtotal: item.subtotal,
       statusPreparo: item.statusPreparo,
     })),

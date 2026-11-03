@@ -62,7 +62,7 @@ publicoRouter.post("/pedidos", async (req, res) => {
       numero: pedido.numero,
       tokenAcompanhamento: pedido.tokenAcompanhamento,
       statusOperacao: pedido.statusOperacao,
-      totalEstimado: pedido.total,
+      totalEstimado: pedido.estimativaTotal,
     });
   } catch (erro) {
     if (erro instanceof ErroPedido) {

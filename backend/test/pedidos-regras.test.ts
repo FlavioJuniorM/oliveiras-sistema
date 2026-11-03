@@ -105,3 +105,30 @@ test("rejeita divisão de pagamento que não fecha o total", () => {
     /não fecha com o valor total/
   );
 });
+
+import {
+  calcularSubtotalPesado,
+  estimarValorItem,
+  quantidadeSolicitadaEmKg,
+} from "../src/modules/pedidos/regras";
+
+test("pedido em gramas é comparado com a balança em kg", () => {
+  assert.equal(quantidadeSolicitadaEmKg(5000, "g"), 5);
+  assert.equal(quantidadeSolicitadaEmKg(2, "kg"), 2);
+});
+
+test("pedido por unidade não tem peso conhecido antes do corte", () => {
+  assert.equal(quantidadeSolicitadaEmKg(15, "unidade"), null);
+  assert.equal(quantidadeSolicitadaEmKg(3, "peca"), null);
+});
+
+test("15 unidades de contra filé são cobradas pelo peso da balança, não como 15 kg", () => {
+  // anotado: 15 unidades; balança: 3,2 kg; preço R$ 59,90/kg
+  assert.equal(calcularSubtotalPesado(59.9, 3.2), 191.68);
+  // estimativa pública não chuta valor para pedido em unidades
+  assert.equal(estimarValorItem(59.9, 15, "unidade", "kg"), 0);
+});
+
+test("item vendido por unidade cobra preço × quantidade", () => {
+  assert.equal(estimarValorItem(27.98, 2, "peca", "un"), 55.96);
+});
