@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database";
 import { registrarLog } from "../../shared/registrarLog";
 import { gerarNumeroPedido } from "./numeroPedido";
+import { dataNaLoja, periodoNaLoja } from "../../shared/datas";
 import {
   excedeToleranciaPesagem,
   obterConfiguracaoPesagem,
@@ -235,27 +236,68 @@ export async function criarPedidoPublico(input: {
   });
 }
 
+const INCLUDE_LISTA_PEDIDOS = {
+  cliente: true,
+  usuario: { select: { nome: true } },
+  itens: {
+    include: {
+      produto: true,
+      preparadoPor: { select: { id: true, nome: true } },
+      cortadoPor: { select: { id: true, nome: true } },
+    },
+  },
+  pagamentos: true,
+  contaReceber: true,
+} satisfies Prisma.PedidoInclude;
+
 export async function listarPedidos(filtros: { status?: string; clienteId?: string }) {
   return prisma.pedido.findMany({
     where: {
       statusPagamento: filtros.status as any,
       clienteId: filtros.clienteId,
     },
-    include: {
-      cliente: true,
-      usuario: { select: { nome: true } },
-      itens: {
-        include: {
-          produto: true,
-          preparadoPor: { select: { id: true, nome: true } },
-          cortadoPor: { select: { id: true, nome: true } },
-        },
-      },
-      pagamentos: true,
-      contaReceber: true,
-    },
+    include: INCLUDE_LISTA_PEDIDOS,
     orderBy: { criadoEm: "desc" },
     take: 100,
+  });
+}
+
+/**
+ * Painel "Pedidos do Dia".
+ * - Dia de hoje: comandas anotadas hoje + comandas de dias anteriores que ainda
+ *   não foram entregues (nada em aberto some do painel) + as entregues hoje.
+ * - Dia passado: tudo o que foi anotado naquele dia (consulta de histórico).
+ * Canceladas nunca aparecem.
+ */
+export async function listarPainelDoDia(data?: string) {
+  const hoje = dataNaLoja();
+  const dia = data && /^\d{4}-\d{2}-\d{2}$/.test(data) ? data : hoje;
+  const { inicio, fim } = periodoNaLoja(dia, dia);
+
+  const where: Prisma.PedidoWhereInput =
+    dia === hoje
+      ? {
+          statusPagamento: { not: "CANCELADO" },
+          OR: [
+            { criadoEm: { gte: inicio } },
+            { statusOperacao: { not: "ENTREGUE" } },
+            { statusHistorico: { some: { status: "ENTREGUE", criadoEm: { gte: inicio } } } },
+          ],
+        }
+      : { statusPagamento: { not: "CANCELADO" }, criadoEm: { gte: inicio, lte: fim } };
+
+  return prisma.pedido.findMany({ where, include: INCLUDE_LISTA_PEDIDOS, orderBy: { criadoEm: "desc" }, take: 500 });
+}
+
+/** Contas a receber de verdade: vendas a prazo com saldo em aberto (de qualquer data). */
+export async function listarAReceber() {
+  return prisma.pedido.findMany({
+    where: {
+      statusPagamento: { not: "CANCELADO" },
+      contaReceber: { status: { in: ["PENDENTE", "PARCIAL", "VENCIDO"] }, saldo: { gt: 0 } },
+    },
+    include: INCLUDE_LISTA_PEDIDOS,
+    orderBy: { contaReceber: { vencimento: "asc" } },
   });
 }
 

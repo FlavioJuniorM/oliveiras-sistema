@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ErroApi } from "../../lib/api";
-import { formatarDataHora, formatarMoeda, formatarQuantidadePedido } from "../../lib/formatadores";
+import { dataLocalISO, formatarDataHora, formatarMoeda, formatarQuantidadePedido } from "../../lib/formatadores";
 import { imprimirPedidoTermico } from "../../lib/impressao";
 import { Pedido, PedidoItem, Produto, StatusOperacaoPedido, UnidadePedido } from "../../types";
 import { CampoObservacao } from "./NovoPedido";
@@ -242,11 +242,14 @@ export function PedidosDoDia() {
   const [rotaAberta, setRotaAberta] = useState<Pedido | null>(null);
   const [erro, setErro] = useState("");
   const [toleranciaPesagemPercentual, setToleranciaPesagemPercentual] = useState(10);
+  // Hoje: comandas do dia + em aberto de dias anteriores. Outro dia: histórico.
+  const [dia, setDia] = useState(dataLocalISO());
+  const ehHoje = dia === dataLocalISO();
 
   const carregarPedidos = useCallback(async () => {
     try {
       const [resposta, configuracao] = await Promise.all([
-        api<Pedido[]>("/pedidos"),
+        api<Pedido[]>(`/pedidos/painel?data=${dia}`),
         api<{ toleranciaPesagemPercentual: number }>("/configuracoes/pesagem"),
       ]);
       setPedidos(resposta.filter((pedido) => pedido.statusPagamento !== "CANCELADO").map(prepararPedidoParaExibicao));
@@ -257,13 +260,16 @@ export function PedidosDoDia() {
     } finally {
       setCarregando(false);
     }
-  }, []);
+  }, [dia]);
 
   useEffect(() => {
+    setCarregando(true);
     carregarPedidos();
+    // Atualização automática só faz sentido no painel de hoje
+    if (!ehHoje) return;
     const intervalo = window.setInterval(carregarPedidos, 10000);
     return () => window.clearInterval(intervalo);
-  }, [carregarPedidos]);
+  }, [carregarPedidos, ehHoje]);
 
   const pedidosVisiveis = useMemo(() => filtro === "TODOS" ? pedidos : pedidos.filter((pedido) => (pedido.statusOperacao || "RECEBIDO") === filtro), [filtro, pedidos]);
 
@@ -278,9 +284,10 @@ export function PedidosDoDia() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div><p className="hidden text-sm text-muted sm:block">Totem de produção · atualização automática a cada 10 segundos</p><h2 className="mt-1 font-display text-2xl uppercase tracking-wide text-ink sm:text-3xl">Pedidos do dia</h2><p className="mt-2 hidden text-sm text-muted sm:block">Abra uma comanda para pesar os cortes. O valor só aparece depois da pesagem.</p></div>
-        <Link to="/pedidos/novo" className="hidden sm:block"><Button tamanho="grande" className="w-full xl:w-auto">Novo pedido</Button></Link>
+        <div className="flex items-end gap-2"><div className="flex flex-col gap-1"><label htmlFor="dia-painel" className="text-xs font-semibold uppercase tracking-wide text-muted">Dia</label><input id="dia-painel" type="date" value={dia} max={dataLocalISO()} onChange={(e) => e.target.value && setDia(e.target.value)} className="h-11 rounded-lg border border-border bg-white px-3 text-sm text-ink" /></div>{!ehHoje && <Button variante="secundaria" className="h-11" onClick={() => setDia(dataLocalISO())}>Voltar para hoje</Button>}<Link to="/pedidos/novo" className="hidden sm:block"><Button tamanho="grande" className="w-full xl:w-auto">Novo pedido</Button></Link></div>
       </div>
       <div className="sticky top-0 z-10 -mx-4 flex gap-2 overflow-x-auto bg-background px-4 py-2 sm:static sm:mx-0 sm:grid sm:grid-cols-4 sm:overflow-visible sm:bg-transparent sm:px-0 sm:py-0 xl:grid-cols-7" role="tablist" aria-label="Filtrar comandas por etapa"><Filtro titulo="Todos" quantidade={pedidos.length} ativo={filtro === "TODOS"} onClick={() => setFiltro("TODOS")} />{FLUXO.map((status) => <Filtro key={status} titulo={STATUS_CONFIG[status].titulo} quantidade={pedidos.filter((pedido) => (pedido.statusOperacao || "RECEBIDO") === status).length} ativo={filtro === status} onClick={() => setFiltro(status)} />)}</div>
+      {!ehHoje && <div className="rounded-lg border border-gold/40 bg-gold/10 px-4 py-3 text-sm font-semibold text-ink">Histórico de {dia.split("-").reverse().join("/")}: comandas anotadas neste dia.</div>}
       {erro && <div className="rounded-lg bg-danger/10 px-4 py-3 text-sm text-danger">{erro}</div>}
       {carregando && <Card><p className="text-sm text-muted">Carregando comandas...</p></Card>}
       {!carregando && pedidosVisiveis.length === 0 && <Card className="py-12 text-center"><p className="font-display text-2xl uppercase tracking-wide text-ink">Nenhuma comanda aqui</p><p className="mt-2 text-sm text-muted">Os novos pedidos aparecerão automaticamente neste painel.</p></Card>}
@@ -290,7 +297,7 @@ export function PedidosDoDia() {
           const config = STATUS_CONFIG[status] || STATUS_CONFIG.RECEBIDO;
           const cortesFeitos = pedido.itens.filter((item) => item.statusPreparo === "CORTADO").length;
           return <div key={pedido.id} onClick={() => setComandaAberta(pedido)} className="flex cursor-pointer flex-col overflow-hidden rounded-card border border-border bg-surface text-left shadow-card transition hover:border-primary">
-            <div className={`flex items-center justify-between px-5 py-4 ${config.fundo}`}><div><p className="font-display text-2xl tracking-wide text-ink">{pedido.numero}</p><p className="mt-0.5 text-xs text-muted">{formatarDataHora(pedido.criadoEm)}</p></div><StatusBadge status={status} /></div>
+            <div className={`flex items-center justify-between px-5 py-4 ${config.fundo}`}><div><p className="font-display text-2xl tracking-wide text-ink">{pedido.numero}</p><p className="mt-0.5 text-xs text-muted">{formatarDataHora(pedido.criadoEm)}</p>{ehHoje && dataLocalISO(new Date(pedido.criadoEm)) !== dia && status !== "ENTREGUE" && <p className="mt-1 inline-block rounded bg-danger/10 px-2 py-0.5 text-xs font-bold text-danger">Em aberto desde {new Date(pedido.criadoEm).toLocaleDateString("pt-BR")}</p>}</div><StatusBadge status={status} /></div>
             <div className="flex-1 px-5 py-4"><div className="flex items-start justify-between gap-3 border-b border-border pb-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-muted">Cliente / restaurante</p><p className="mt-1 text-lg font-semibold text-ink">{nomeDoCliente(pedido)}</p></div><div className="text-right">{cortesFeitos === pedido.itens.length ? <p className="whitespace-nowrap font-bold text-ink">{formatarMoeda(pedido.total)}</p> : <p className="whitespace-nowrap text-xs font-semibold text-gold">Aguardando pesagem</p>}</div></div><div className="mt-4 space-y-2">{pedido.itens.map((item) => <div key={item.id} className="flex items-start justify-between gap-3 rounded-lg border border-border bg-background/60 px-3 py-2"><div><p className="font-semibold text-ink">{item.produto?.nome || "Carne / produto"}</p><p className="mt-0.5 text-xs text-muted">Pediu: {textoPedido(item)} · Balança: {textoReal(item)}</p>{item.observacao && <p className="mt-1 inline-block rounded bg-gold/15 px-1.5 py-0.5 text-xs font-semibold text-ink">» {item.observacao}</p>}</div><p className={`whitespace-nowrap text-sm font-semibold ${item.statusPreparo === "CORTADO" ? "text-ink" : "text-muted"}`}>{item.statusPreparo === "CORTADO" ? formatarMoeda(item.subtotal) : "—"}</p></div>)}</div></div>
             <div className="flex items-center justify-between border-t border-border bg-background px-5 py-3"><span className="text-xs font-semibold text-muted">{cortesFeitos}/{pedido.itens.length} itens pesados</span><button type="button" onClick={(e) => { e.stopPropagation(); setComandaAberta(pedido); }} className="text-sm font-semibold text-primary">Abrir comanda →</button></div>
             {["PRONTO", "AGUARDANDO_RETIRADA", "EM_ENTREGA"].includes(status) && <div className="border-t border-border px-5 py-3">{status === "EM_ENTREGA" && <p className="mb-2 truncate text-xs text-muted">📍 {enderecoDoPedido(pedido) || "sem endereço"}</p>}<AcoesSaida pedido={pedido} onAtualizado={atualizarPedidoNaLista} onGerarRota={setRotaAberta} /></div>}

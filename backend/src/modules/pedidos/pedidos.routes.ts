@@ -15,6 +15,8 @@ import {
   adicionarItemPedido,
   alterarItemPedido,
   removerItemPedido,
+  listarPainelDoDia,
+  listarAReceber,
 } from "./pedidos.service";
 
 export const pedidosRouter = Router();
@@ -73,6 +75,16 @@ pedidosRouter.post("/", async (req, res) => {
     console.error(erro);
     return res.status(500).json({ erro: "Erro interno ao criar o pedido." });
   }
+});
+
+// Painel "Pedidos do Dia" (hoje = do dia + em aberto de dias anteriores)
+pedidosRouter.get("/painel", async (req, res) => {
+  return res.json(await listarPainelDoDia(typeof req.query.data === "string" ? req.query.data : undefined));
+});
+
+// Contas a receber: só vendas a prazo com saldo em aberto
+pedidosRouter.get("/a-receber", somentePapel("ADMINISTRATIVO"), async (_req, res) => {
+  return res.json(await listarAReceber());
 });
 
 pedidosRouter.get("/", async (req, res) => {
