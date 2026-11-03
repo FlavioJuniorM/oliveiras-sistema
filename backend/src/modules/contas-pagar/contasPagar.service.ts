@@ -1,3 +1,4 @@
+import { formatarDataCalendario, hojeCalendario } from "../../shared/datas";
 import { prisma } from "../../config/database";
 import { registrarLog } from "../../shared/registrarLog";
 
@@ -27,7 +28,7 @@ export async function listarContasPagar(filtros: FiltrosContaPagar) {
   });
 
   // Marca como vencida (na leitura) qualquer conta pendente/parcial cujo vencimento já passou
-  const hoje = new Date();
+  const hoje = hojeCalendario();
   const comStatusAtualizado = contas.map((c) => {
     const vencida =
       (c.status === "PENDENTE" || c.status === "PARCIAL") && c.vencimento < hoje;
@@ -50,7 +51,7 @@ export async function criarContaPagar(input: CriarContaPagarInput) {
     acao: "CRIOU_CONTA_PAGAR",
     entidade: "conta_pagar",
     entidadeId: conta.id,
-    detalhes: `Lançou conta a pagar de ${conta.fornecedor} — R$ ${conta.valor} (venc. ${conta.vencimento.toLocaleDateString("pt-BR")})`,
+    detalhes: `Lançou conta a pagar de ${conta.fornecedor} — R$ ${conta.valor} (venc. ${formatarDataCalendario(conta.vencimento)})`,
   });
 
   return conta;

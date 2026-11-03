@@ -1,3 +1,4 @@
+import { anoNaLoja } from "../../shared/datas";
 import { Prisma } from "@prisma/client";
 
 /**
@@ -6,7 +7,8 @@ import { Prisma } from "@prisma/client";
  * quando dois funcionários finalizam pedidos ao mesmo tempo (regra 10: número único).
  */
 export async function gerarNumeroPedido(tx: Prisma.TransactionClient): Promise<string> {
-  const ano = new Date().getFullYear();
+  // Ano no horário de Brasília (pedido às 22h de 31/12 ainda é do ano corrente)
+  const ano = anoNaLoja();
 
   const contador = await tx.contadorPedido.upsert({
     where: { ano },

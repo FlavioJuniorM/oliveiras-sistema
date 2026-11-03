@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import { formatarData, formatarMoeda } from "../lib/formatadores";
+import { formatarDataCalendario, formatarMoeda } from "../lib/formatadores";
 import { DashboardData } from "../types";
 import { Card, CardSubtitulo, CardTitulo } from "../components/ui/Card";
 import { KpiCard } from "../components/ui/KpiCard";
@@ -126,7 +126,7 @@ function LinhaConta({
     <div className="flex items-center justify-between py-2.5">
       <div>
         <p className="text-sm font-medium text-ink">{nome}</p>
-        <p className="text-xs text-muted">Vencimento: {formatarData(vencimento)}</p>
+        <p className="text-xs text-muted">Vencimento: {formatarDataCalendario(vencimento)}</p>
       </div>
       <div className="flex items-center gap-2">
         <p className="text-sm font-semibold text-ink">{formatarMoeda(valor)}</p>

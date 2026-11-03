@@ -1,14 +1,6 @@
+import { hojeCalendario, inicioDoDiaNaLoja, inicioDoMesNaLoja } from "../../shared/datas";
 import { prisma } from "../../config/database";
 
-function inicioDoDia(data = new Date()) {
-  const d = new Date(data);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function inicioDoMes(data = new Date()) {
-  return new Date(data.getFullYear(), data.getMonth(), 1);
-}
 
 /**
  * Monta os dados do dashboard administrativo (seção 3 da especificação):
@@ -16,9 +8,12 @@ function inicioDoMes(data = new Date()) {
  * clientes atendidos, produtos mais vendidos e contas próximas do vencimento.
  */
 export async function obterDashboard() {
-  const hoje = inicioDoDia();
-  const inicioMes = inicioDoMes();
-  const daquiA7Dias = new Date(hoje.getTime() + 7 * 24 * 60 * 60 * 1000);
+  // "hoje" para pedidos/pagamentos = desde a meia-noite de Brasília;
+  // "hojeVenc" para vencimentos = data de calendário (ver shared/datas.ts)
+  const hoje = inicioDoDiaNaLoja();
+  const inicioMes = inicioDoMesNaLoja();
+  const hojeVenc = hojeCalendario();
+  const daquiA7Dias = new Date(hojeVenc.getTime() + 7 * 24 * 60 * 60 * 1000);
 
   const [pedidosHoje, pedidosMes, contasReceber, contasPagar, clientesAtivos, produtosAtivos] = await Promise.all([
     prisma.pedido.findMany({
@@ -47,7 +42,7 @@ export async function obterDashboard() {
     .reduce((s, c) => s + Number(c.saldo), 0);
 
   const totalVencido = contasReceber
-    .filter((c) => c.vencimento < hoje && (c.status === "PENDENTE" || c.status === "PARCIAL"))
+    .filter((c) => c.vencimento < hojeVenc && (c.status === "PENDENTE" || c.status === "PARCIAL"))
     .reduce((s, c) => s + Number(c.saldo), 0);
 
   const clientesAtendidosHoje = new Set(
@@ -113,17 +108,17 @@ export async function obterDashboard() {
     .filter(
       (c) =>
         (c.status === "PENDENTE" || c.status === "PARCIAL") &&
-        c.vencimento >= hoje &&
+        c.vencimento >= hojeVenc &&
         c.vencimento <= daquiA7Dias
     )
     .sort((a, b) => a.vencimento.getTime() - b.vencimento.getTime());
 
   const contasReceberVencidas = contasReceber.filter(
-    (c) => c.vencimento < hoje && (c.status === "PENDENTE" || c.status === "PARCIAL")
+    (c) => c.vencimento < hojeVenc && (c.status === "PENDENTE" || c.status === "PARCIAL")
   );
 
   const contasPagarProximasVencimento = contasPagar
-    .filter((c) => c.vencimento >= hoje && c.vencimento <= daquiA7Dias)
+    .filter((c) => c.vencimento >= hojeVenc && c.vencimento <= daquiA7Dias)
     .sort((a, b) => a.vencimento.getTime() - b.vencimento.getTime());
 
   return {

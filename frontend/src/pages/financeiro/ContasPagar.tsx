@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api, ErroApi } from "../../lib/api";
-import { formatarData, formatarMoeda } from "../../lib/formatadores";
+import { dataLocalISO, formatarData, formatarDataCalendario, formatarMoeda } from "../../lib/formatadores";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -26,7 +26,7 @@ interface ContaPagar {
 const CATEGORIAS = ["Fornecedores", "Energia", "Água", "Aluguel", "Funcionários", "Impostos", "Manutenção", "Outros"];
 const FORMAS_PAGAMENTO = ["Dinheiro", "Pix", "Débito", "Crédito", "Transferência", "Boleto", "Outros"];
 
-function hojeISO() { return new Date().toISOString().slice(0, 10); }
+function hojeISO() { return dataLocalISO(); }
 
 export function ContasPagar() {
   const [contas, setContas] = useState<ContaPagar[]>([]);
@@ -80,7 +80,7 @@ function Info({ label, valor }: { label: string; valor: string }) { return <div>
 
 function CartaoConta({ conta, onPagar }: { conta: ContaPagar; onPagar: () => void }) {
   const paga = conta.status === "PAGO"; const cancelada = conta.status === "CANCELADO"; const saldo = conta.saldo ?? Number(conta.valor) - Number(conta.valorPago || 0);
-  return <Card className={cancelada ? "opacity-60" : ""}><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex flex-wrap items-center gap-2"><p className="font-display text-xl uppercase text-ink">{conta.fornecedor}</p><StatusBadge status={conta.status} /></div><p className="text-sm text-ink mt-1">{conta.descricao}</p><p className="text-xs text-muted mt-1">{conta.categoria}</p></div><div className="sm:text-right"><p className="text-xs text-muted">Valor da conta</p><p className="font-display text-2xl text-ink">{formatarMoeda(conta.valor)}</p></div></div><div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-4 text-sm md:grid-cols-4"><Info label="Lançamento" valor={formatarData(conta.dataLancamento)} /><Info label="Vencimento" valor={formatarData(conta.vencimento)} /><Info label="Pago" valor={formatarMoeda(conta.valorPago || 0)} /><Info label="Saldo" valor={formatarMoeda(saldo)} /></div>{(conta.dataPagamento || conta.formaPagamento || conta.observacoes) && <div className="mt-3 rounded-lg bg-background px-3 py-2 text-xs text-muted">{conta.dataPagamento && `Último pagamento: ${formatarData(conta.dataPagamento)}`}{conta.formaPagamento && ` · ${conta.formaPagamento}`}{conta.observacoes && <span className="block mt-1">Obs.: {conta.observacoes}</span>}</div>}{!paga && !cancelada && <Button className="mt-4 w-full sm:w-auto" onClick={onPagar}>{Number(conta.valorPago || 0) > 0 ? "Registrar pagamento restante" : "Registrar pagamento"}</Button>}</Card>;
+  return <Card className={cancelada ? "opacity-60" : ""}><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex flex-wrap items-center gap-2"><p className="font-display text-xl uppercase text-ink">{conta.fornecedor}</p><StatusBadge status={conta.status} /></div><p className="text-sm text-ink mt-1">{conta.descricao}</p><p className="text-xs text-muted mt-1">{conta.categoria}</p></div><div className="sm:text-right"><p className="text-xs text-muted">Valor da conta</p><p className="font-display text-2xl text-ink">{formatarMoeda(conta.valor)}</p></div></div><div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-4 text-sm md:grid-cols-4"><Info label="Lançamento" valor={formatarDataCalendario(conta.dataLancamento)} /><Info label="Vencimento" valor={formatarDataCalendario(conta.vencimento)} /><Info label="Pago" valor={formatarMoeda(conta.valorPago || 0)} /><Info label="Saldo" valor={formatarMoeda(saldo)} /></div>{(conta.dataPagamento || conta.formaPagamento || conta.observacoes) && <div className="mt-3 rounded-lg bg-background px-3 py-2 text-xs text-muted">{conta.dataPagamento && `Último pagamento: ${formatarData(conta.dataPagamento)}`}{conta.formaPagamento && ` · ${conta.formaPagamento}`}{conta.observacoes && <span className="block mt-1">Obs.: {conta.observacoes}</span>}</div>}{!paga && !cancelada && <Button className="mt-4 w-full sm:w-auto" onClick={onPagar}>{Number(conta.valorPago || 0) > 0 ? "Registrar pagamento restante" : "Registrar pagamento"}</Button>}</Card>;
 }
 
 function FormularioContaPagar({ onCancelar, onCriado }: { onCancelar: () => void; onCriado: () => void }) {

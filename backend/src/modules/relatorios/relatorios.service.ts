@@ -1,3 +1,4 @@
+import { hojeCalendario } from "../../shared/datas";
 import { prisma } from "../../config/database";
 
 interface PeriodoInput {
@@ -104,7 +105,7 @@ export async function relatorioClientes({ inicio, fim }: PeriodoInput) {
     include: { cliente: true },
   });
 
-  const hoje = new Date();
+  const hoje = hojeCalendario();
   const clientesInadimplentes = contasEmAberto
     .filter((c) => c.vencimento < hoje)
     .map((c) => ({
@@ -137,7 +138,7 @@ export async function relatorioFinanceiro({ inicio, fim }: PeriodoInput) {
 
   const totalRecebido = pagamentosRecebidos.reduce((s, p) => s + Number(p.valor), 0);
 
-  const hoje = new Date();
+  const hoje = hojeCalendario();
   const totalAReceber = contasReceber
     .filter((c) => c.status === "PENDENTE" || c.status === "PARCIAL")
     .reduce((s, c) => s + Number(c.saldo), 0);

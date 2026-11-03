@@ -1,3 +1,4 @@
+import { formatarDataCalendario, formatarDataHoraLoja } from "../../shared/datas";
 import { obterPedido } from "../pedidos/pedidos.service";
 import { LOGO_TERMICA_DATA_URI } from "./logoTermica";
 
@@ -20,7 +21,7 @@ function formatarMoeda(valor: number) {
 }
 
 function formatarDataHora(data: Date) {
-  return new Date(data).toLocaleString("pt-BR");
+  return formatarDataHoraLoja(data);
 }
 
 function formatarQuantidade(valor: number | null | undefined, unidade: string) {
@@ -119,7 +120,7 @@ export async function gerarComandaTermica(pedidoId: string, largura: 32 | 42 = 3
   if (pedido.contaReceber) {
     linhas.push(linha);
     linhas.push(`SALDO A RECEBER: ${formatarMoeda(Number(pedido.contaReceber.saldo))}`);
-    linhas.push(`Vencimento: ${new Date(pedido.contaReceber.vencimento).toLocaleDateString("pt-BR")}`);
+    linhas.push(`Vencimento: ${formatarDataCalendario(pedido.contaReceber.vencimento)}`);
   }
 
   linhas.push(linha);
@@ -257,7 +258,7 @@ export async function gerarComandaTermicaHtml(pedidoId: string, tipo: TipoImpres
     ? "Na retirada"
     : "A definir";
   const vencimento = pedido.contaReceber
-    ? `<div class="linha"><span>Vencimento</span><span>${new Date(pedido.contaReceber.vencimento).toLocaleDateString("pt-BR")}</span></div>`
+    ? `<div class="linha"><span>Vencimento</span><span>${formatarDataCalendario(pedido.contaReceber.vencimento)}</span></div>`
     : "";
 
   return paginaTermica(`Nota ${pedido.numero}`, `
@@ -312,7 +313,7 @@ export async function gerarComandaA4Html(pedidoId: string) {
   const blocoSaldo = pedido.contaReceber
     ? `<p style="color:#b00020"><strong>SALDO A RECEBER: ${formatarMoeda(
         Number(pedido.contaReceber.saldo)
-      )}</strong> — Vencimento: ${new Date(pedido.contaReceber.vencimento).toLocaleDateString("pt-BR")}</p>`
+      )}</strong> — Vencimento: ${formatarDataCalendario(pedido.contaReceber.vencimento)}</p>`
     : "";
 
   return `<!DOCTYPE html>

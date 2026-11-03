@@ -1,16 +1,16 @@
 import { useState } from "react";
 import { api } from "../../lib/api";
-import { formatarMoeda } from "../../lib/formatadores";
+import { dataLocalISO, formatarMoeda } from "../../lib/formatadores";
 import { Card, CardTitulo } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 
 function primeiroDiaDoMes() {
   const hoje = new Date();
-  return new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0, 10);
+  return dataLocalISO(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
 }
 function hojeISO() {
-  return new Date().toISOString().slice(0, 10);
+  return dataLocalISO();
 }
 
 export function Relatorios() {

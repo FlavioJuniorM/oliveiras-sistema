@@ -1,3 +1,4 @@
+import { periodoNaLoja } from "../../shared/datas";
 import { Router } from "express";
 import { z } from "zod";
 import { autenticar } from "../../middlewares/autenticacao";
@@ -14,9 +15,10 @@ export const relatoriosRouter = Router();
 // Toda a área de relatórios é administrativa (seção 14)
 relatoriosRouter.use(autenticar, somentePapel("ADMINISTRATIVO"));
 
+const dataDia = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const periodoSchema = z.object({
-  inicio: z.coerce.date(),
-  fim: z.coerce.date(),
+  inicio: dataDia,
+  fim: dataDia,
 });
 
 function validarPeriodo(req: any, res: any): { inicio: Date; fim: Date } | null {
@@ -26,11 +28,12 @@ function validarPeriodo(req: any, res: any): { inicio: Date; fim: Date } | null 
   });
 
   if (!validacao.success) {
-    res.status(400).json({ erro: "Informe os parâmetros 'inicio' e 'fim' (datas válidas)." });
+    res.status(400).json({ erro: "Informe os parâmetros 'inicio' e 'fim' no formato AAAA-MM-DD." });
     return null;
   }
 
-  return validacao.data;
+  // Dias completos no horário de Brasília: "até 03/11" inclui o dia 03/11 inteiro
+  return periodoNaLoja(validacao.data.inicio, validacao.data.fim);
 }
 
 // GET /relatorios/vendas?inicio=2026-08-01&fim=2026-08-31
