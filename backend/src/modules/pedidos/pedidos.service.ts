@@ -6,6 +6,7 @@ import { gerarNumeroPedido } from "./numeroPedido";
 import {
   excedeToleranciaPesagem,
   obterConfiguracaoPesagem,
+  pesoMuitoAbaixoDoSolicitado,
 } from "../configuracoes/configuracoes.service";
 import {
   calcularSubtotalItem,
@@ -364,6 +365,12 @@ export async function atualizarPreparoItem(
         `O peso real ultrapassa a tolerância configurada de ${configuracao.toleranciaPesagemPercentual}%.`
       );
     }
+    if (pesoMuitoAbaixoDoSolicitado(Number(item.pesoOuQtd), input.pesoReal!)) {
+      const unidade = item.unidadePedido === "g" ? "gramas (g)" : item.unidadePedido;
+      throw new ErroPedido(
+        `O peso real está muito abaixo do solicitado. Este item foi pedido em ${unidade} — confira se digitou na unidade certa.`
+      );
+    }
   }
 
   const pesoReal =
@@ -703,6 +710,9 @@ export async function registrarPagamento(
   }
   if (pedido.statusPagamento === "PAGO") {
     throw new ErroPedido("Este pedido já está totalmente pago.");
+  }
+  if (pedido.statusOperacao === "RECEBIDO" || pedido.statusOperacao === "EM_PREPARO") {
+    throw new ErroPedido("Finalize a conferência dos cortes antes de registrar pagamento.");
   }
 
   const resultado = await prisma.$transaction(async (tx) => {

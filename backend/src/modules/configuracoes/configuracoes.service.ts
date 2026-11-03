@@ -47,3 +47,12 @@ export function excedeToleranciaPesagem(
   const limite = solicitado * (1 + toleranciaPesagemPercentual / 100);
   return pesoReal > limite + 0.0005;
 }
+
+// Proteção contra erro de unidade (ex.: item pedido em gramas e peso real digitado em quilos).
+// Um corte legítimo raramente sai com menos de 10% do que foi solicitado.
+export const PESO_MINIMO_PERCENTUAL = 10;
+
+export function pesoMuitoAbaixoDoSolicitado(solicitado: number, pesoReal: number) {
+  if (solicitado <= 0) return false;
+  return pesoReal < solicitado * (PESO_MINIMO_PERCENTUAL / 100);
+}

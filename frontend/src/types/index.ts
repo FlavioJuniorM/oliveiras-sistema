@@ -28,6 +28,8 @@ export interface Produto {
   nome: string;
   tipoVenda: "PESO" | "UNIDADE" | "PACOTE_FIXO";
   unidadeMedida: string;
+  /** Unidade em que o preço é cobrado (ex.: kg), preservada para exibição */
+  unidadePreco?: string;
   preco: string | number;
   status: "ATIVO" | "INATIVO";
   categoria?: { id: string; nome: string } | null;

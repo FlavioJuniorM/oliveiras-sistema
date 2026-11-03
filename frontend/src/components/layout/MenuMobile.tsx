@@ -15,6 +15,7 @@ export function MenuMobile() {
         <NavLink
           key={item.para}
           to={item.para}
+          end
           className={({ isActive }) =>
             `flex-1 py-3 text-center text-xs font-semibold ${
               isActive ? "text-primary" : "text-white/70"

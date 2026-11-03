@@ -1,3 +1,4 @@
+import { quantidadeParaPreco, type UnidadePedido } from "../pedidos/regras";
 import { prisma } from "../../config/database";
 
 function inicioDoDia(data = new Date()) {
@@ -67,16 +68,23 @@ export async function obterDashboard() {
       quantidade: 0,
       faturamento: 0,
     };
-    atual.quantidade += Number(item.pesoReal ?? item.pesoOuQtd);
+    atual.quantidade += quantidadeParaPreco(
+      Number(item.pesoReal ?? item.pesoOuQtd),
+      item.unidadePedido as UnidadePedido,
+      item.produto.unidadeMedida
+    );
     atual.faturamento += Number(item.subtotal);
     porProduto.set(item.produtoId, atual);
   }
 
-  const produtosComVendas = produtosAtivos.map((produto) => ({
-    nome: produto.nome,
-    quantidade: porProduto.get(produto.id)?.quantidade ?? 0,
-    faturamento: porProduto.get(produto.id)?.faturamento ?? 0,
-  }));
+  // Só entram no ranking produtos que de fato tiveram venda no mês
+  const produtosComVendas = produtosAtivos
+    .filter((produto) => (porProduto.get(produto.id)?.faturamento ?? 0) > 0)
+    .map((produto) => ({
+      nome: produto.nome,
+      quantidade: Number((porProduto.get(produto.id)?.quantidade ?? 0).toFixed(3)),
+      faturamento: Number((porProduto.get(produto.id)?.faturamento ?? 0).toFixed(2)),
+    }));
 
   const produtosMaisVendidos = produtosComVendas
     .sort((a, b) => b.faturamento - a.faturamento)
