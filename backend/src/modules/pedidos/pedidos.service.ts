@@ -299,13 +299,13 @@ export async function atualizarPreparoItem(
   // Para carnes por peso, o valor real é SEMPRE em kg (o que a balança mostra).
   // Só dá para comparar com o pedido quando ele foi anotado em kg ou g.
   const solicitadoEmKg = quantidadeSolicitadaEmKg(Number(item.pesoOuQtd), item.unidadePedido as UnidadePedido);
+  // Peso acima da tolerância NÃO bloqueia: a tela avisa e o balcão decide.
+  // Fica registrado no histórico (log) para conferência posterior.
+  let acimaDaTolerancia = false;
   if (pesado && vendidoPorPeso && solicitadoEmKg != null) {
     const configuracao = await obterConfiguracaoPesagem();
-    if (excedeToleranciaPesagem(solicitadoEmKg, input.pesoReal!, configuracao.toleranciaPesagemPercentual)) {
-      throw new ErroPedido(
-        `O peso ultrapassa a tolerância de ${configuracao.toleranciaPesagemPercentual}% sobre o pedido (${solicitadoEmKg.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} kg).`
-      );
-    }
+    acimaDaTolerancia = excedeToleranciaPesagem(solicitadoEmKg, input.pesoReal!, configuracao.toleranciaPesagemPercentual);
+    // Peso absurdamente baixo continua bloqueado: quase sempre é erro de unidade (g digitado como kg)
     if (pesoMuitoAbaixoDoSolicitado(solicitadoEmKg, input.pesoReal!)) {
       throw new ErroPedido(
         `O peso está muito abaixo do pedido (${solicitadoEmKg.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} kg). Informe o peso da balança em kg.`
@@ -358,7 +358,7 @@ export async function atualizarPreparoItem(
     entidade: "pedido_item",
     entidadeId: itemId,
     detalhes: pesado
-      ? `Pesou ${item.produto.nome}: ${pesoReal} ${vendidoPorPeso ? "kg" : "un"} = R$ ${subtotal}`
+      ? `Pesou ${item.produto.nome}: ${pesoReal} ${vendidoPorPeso ? "kg" : "un"} = R$ ${subtotal}${acimaDaTolerancia ? ` (acima da tolerância; pedido ${solicitadoEmKg} kg)` : ""}`
       : `Reabriu a pesagem de ${item.produto.nome}`,
   });
 
