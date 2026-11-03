@@ -73,8 +73,15 @@ produtosRouter.put("/:id", somentePapel("ADMINISTRATIVO"), async (req, res) => {
     return res.status(400).json({ erro: validacao.error.issues[0].message });
   }
 
-  const produto = await atualizarDadosProduto(req.params.id, validacao.data, req.usuario!.id);
-  return res.json(produto);
+  try {
+    const produto = await atualizarDadosProduto(req.params.id, validacao.data, req.usuario!.id);
+    return res.json(produto);
+  } catch (erro: any) {
+    if (erro.code === "P2002") return res.status(409).json({ erro: "Já existe outro produto com esse código." });
+    if (erro.code === "P2025") return res.status(404).json({ erro: "Produto não encontrado." });
+    console.error(erro);
+    return res.status(500).json({ erro: "Erro interno ao atualizar o produto." });
+  }
 });
 
 // Única rota capaz de alterar preço — sempre e só ADMINISTRATIVO (regra 1)
