@@ -1,4 +1,5 @@
 import { obterPedido } from "../pedidos/pedidos.service";
+import { LOGO_TERMICA_DATA_URI } from "./logoTermica";
 
 const NOME_LOJA = "CASA DE CARNES OLIVEIRAS";
 const ENDERECO_LOJA = "RUA AMETISTA, 22 - JD MUTINGA";
@@ -127,82 +128,159 @@ export async function gerarComandaTermica(pedidoId: string, largura: 32 | 42 = 3
   return linhas.join("\n");
 }
 
-/** Gera uma página estreita, pronta para Ctrl+P/impressão em térmica de 58 mm. */
-export async function gerarComandaTermicaHtml(pedidoId: string) {
-  const dados = await montarDadosComanda(pedidoId);
-  if (!dados) return null;
-  const { pedido, formasResumo } = dados;
-  const nomeResponsavel = pedido.usuario?.nome ?? "Pedido online";
-  const cliente = pedido.cliente?.nomeFantasia || pedido.cliente?.razaoSocial || pedido.cliente?.nome || "Consumidor final";
-  const itens = pedido.itens.map((item) => {
-    const solicitado = formatarQuantidade(Number(item.pesoOuQtd), unidadePedidoCurta(item.unidadePedido));
-    const real = formatarQuantidade(item.statusPreparo === "CORTADO" && item.pesoReal != null ? Number(item.pesoReal) : null, unidadeVenda(item.produto));
-    return `<section class="item">
-      <div class="produto">${escaparHtml(item.produto.nome)}</div>
-      <div class="linha"><span>Solicitado: ${solicitado}</span><span>Real: ${real}</span></div>
-      <div class="linha"><span>${formatarMoeda(Number(item.precoUnitario))}/${escaparHtml(item.produto.unidadeMedida)}</span><strong>${item.statusPreparo === "CORTADO" ? formatarMoeda(Number(item.subtotal)) : "a pesar"}</strong></div>
-    </section>`;
-  }).join("");
-  const pagamento = formasResumo.length ? formasResumo.map(escaparHtml).join("<br />") : "A definir";
-  const vencimento = pedido.contaReceber
-    ? `<div class="linha"><span>Vencimento</span><span>${new Date(pedido.contaReceber.vencimento).toLocaleDateString("pt-BR")}</span></div>`
-    : "";
+export type TipoImpressaoTermica = "corte" | "cliente";
 
-  return `<!doctype html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8" />
-  <title>Comanda ${escaparHtml(pedido.numero)}</title>
-  <style>
+export class ErroImpressao extends Error {}
+
+const ESTILO_TERMICA_58 = `
     @page { size: 58mm auto; margin: 0; }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: #fff; color: #000; }
     body { width: 58mm; font-family: "Courier New", monospace; font-size: 11px; }
-    .nota { width: 54mm; margin: 0 auto; padding: 3mm 0 5mm; }
+    .nota { width: 54mm; margin: 0 auto; padding: 3mm 0 6mm; }
     .centro { text-align: center; }
+    .logo { display: block; width: 40mm; height: auto; margin: 0 auto 2mm; image-rendering: pixelated; }
     .loja { font-size: 14px; font-weight: 700; line-height: 1.15; }
     .endereco { margin-top: 2px; font-size: 10px; }
-    .tipo { margin-top: 4px; font-weight: 700; }
+    .tipo { margin-top: 4px; font-weight: 700; font-size: 13px; letter-spacing: 1px; }
+    .numero { font-size: 22px; font-weight: 700; margin-top: 2px; }
     .linha { display: flex; justify-content: space-between; gap: 8px; line-height: 1.35; }
     .linha > :last-child { text-align: right; }
     .separador { border-top: 1px dashed #000; margin: 7px 0; }
     .dados { line-height: 1.4; }
     .item { padding: 5px 0; border-bottom: 1px dashed #777; }
+    .item:last-of-type { border-bottom: none; }
     .produto { font-weight: 700; text-transform: uppercase; margin-bottom: 2px; }
+    .item-corte .produto { font-size: 14px; }
+    .pedido-corte { font-size: 14px; font-weight: 700; }
+    .peso-manual { margin-top: 6px; font-size: 12px; }
     .total { font-size: 16px; font-weight: 700; }
     .rodape { margin-top: 10px; text-align: center; font-size: 10px; }
-    @media print { body { width: 58mm; } .nota { padding-bottom: 8mm; } }
+    @media print { body { width: 58mm; } .nota { padding-bottom: 8mm; } }`;
+
+function paginaTermica(titulo: string, corpo: string) {
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>${escaparHtml(titulo)}</title>
+  <style>${ESTILO_TERMICA_58}
   </style>
 </head>
-<body onload="setTimeout(function(){ window.print(); }, 250)">
+<body onload="setTimeout(function(){ window.print(); }, 350)">
   <main class="nota">
+${corpo}
+  </main>
+</body>
+</html>`;
+}
+
+function nomeClienteImpressao(pedido: NonNullable<Awaited<ReturnType<typeof obterPedido>>>) {
+  return pedido.cliente?.nomeFantasia || pedido.cliente?.razaoSocial || pedido.cliente?.nome || pedido.nomeCliente || "Consumidor final";
+}
+
+function quantidadePedidaPorExtenso(quantidade: number, unidade: string) {
+  const numero = quantidade.toLocaleString("pt-BR", { maximumFractionDigits: 3 });
+  if (unidade === "kg" || unidade === "g") return `${numero} ${unidade}`;
+  return `${numero} ${quantidade === 1 ? "unidade" : "unidades"}`;
+}
+
+/**
+ * Gera a página de impressão térmica (58 mm).
+ * - "corte": vai para o balcão dos açougueiros logo após a anotação — sem valores,
+ *   com espaço para anotar o peso de cada carne.
+ * - "cliente": nota final com a logo, pesos reais e valor total — só depois que
+ *   todos os itens foram pesados.
+ */
+export async function gerarComandaTermicaHtml(pedidoId: string, tipo: TipoImpressaoTermica = "cliente") {
+  const dados = await montarDadosComanda(pedidoId);
+  if (!dados) return null;
+  const { pedido, formasResumo } = dados;
+  const cliente = nomeClienteImpressao(pedido);
+  const telefone = pedido.cliente?.telefone || pedido.cliente?.whatsapp || pedido.telefoneCliente;
+  const endereco = pedido.enderecoEntrega || pedido.cliente?.endereco;
+  const itensOrdenados = [...pedido.itens].sort((a, b) => a.produto.nome.localeCompare(b.produto.nome, "pt-BR"));
+
+  if (tipo === "corte") {
+    const itens = itensOrdenados.map((item) => `<section class="item item-corte">
+      <div class="produto">${escaparHtml(item.produto.nome)}</div>
+      <div class="pedido-corte">Pediu: ${escaparHtml(quantidadePedidaPorExtenso(Number(item.pesoOuQtd), item.unidadePedido))}</div>
+      <div class="peso-manual">Peso: ____________ ${item.produto.tipoVenda === "PESO" ? "kg" : "un"}</div>
+    </section>`).join("");
+
+    return paginaTermica(`Corte ${pedido.numero}`, `
     <header class="centro">
       <div class="loja">${escaparHtml(NOME_LOJA)}</div>
+      <div class="tipo">PEDIDO PARA CORTE</div>
+      <div class="numero">${escaparHtml(pedido.numero)}</div>
+    </header>
+    <div class="separador"></div>
+    <div class="dados">
+      <div>Cliente: <strong>${escaparHtml(cliente)}</strong></div>
+      ${telefone ? `<div>Tel: ${escaparHtml(telefone)}</div>` : ""}
+      ${endereco ? `<div>Entrega: ${escaparHtml(endereco)}</div>` : ""}
+      <div>Anotado: ${escaparHtml(formatarDataHora(pedido.criadoEm))}</div>
+      ${pedido.observacoesCliente ? `<div>Obs.: ${escaparHtml(pedido.observacoesCliente)}</div>` : ""}
+    </div>
+    <div class="separador"></div>
+    ${itens}
+    <div class="separador"></div>
+    <div class="linha"><span>Total de itens</span><strong>${pedido.itens.length}</strong></div>
+    <div class="rodape">Pesar cada carne e lançar o peso<br />no sistema (Pedidos do Dia).</div>`);
+  }
+
+  if (pedido.itens.some((item) => item.statusPreparo !== "CORTADO")) {
+    throw new ErroImpressao("A nota do cliente só pode ser impressa depois que todos os itens forem pesados.");
+  }
+
+  const itens = itensOrdenados.map((item) => {
+    const unidade = unidadeVenda(item.produto);
+    const peso = Number(item.pesoReal).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
+    return `<section class="item">
+      <div class="produto">${escaparHtml(item.produto.nome)}</div>
+      <div class="linha"><span>${peso} ${escaparHtml(unidade)} x ${formatarMoeda(Number(item.precoUnitario))}</span><strong>${formatarMoeda(Number(item.subtotal))}</strong></div>
+    </section>`;
+  }).join("");
+  const pesoTotal = itensOrdenados
+    .filter((item) => item.produto.tipoVenda === "PESO")
+    .reduce((soma, item) => soma + Number(item.pesoReal), 0);
+  const pagamento = formasResumo.length
+    ? formasResumo.map(escaparHtml).join("<br />")
+    : pedido.momentoPagamento === "NA_ENTREGA"
+    ? "Na entrega"
+    : pedido.momentoPagamento === "NA_RETIRADA"
+    ? "Na retirada"
+    : "A definir";
+  const vencimento = pedido.contaReceber
+    ? `<div class="linha"><span>Vencimento</span><span>${new Date(pedido.contaReceber.vencimento).toLocaleDateString("pt-BR")}</span></div>`
+    : "";
+
+  return paginaTermica(`Nota ${pedido.numero}`, `
+    <header class="centro">
+      <img class="logo" src="${LOGO_TERMICA_DATA_URI}" alt="${escaparHtml(NOME_LOJA)}" />
       <div class="endereco">${escaparHtml(ENDERECO_LOJA)}</div>
-      <div class="tipo">COMANDA DE VENDA</div>
+      <div class="tipo">NOTA DO PEDIDO</div>
     </header>
     <div class="separador"></div>
     <div class="dados">
       <div class="linha"><span>Pedido</span><strong>${escaparHtml(pedido.numero)}</strong></div>
       <div class="linha"><span>Data</span><span>${escaparHtml(formatarDataHora(pedido.criadoEm))}</span></div>
       <div>Cliente: <strong>${escaparHtml(cliente)}</strong></div>
+      ${telefone ? `<div>Tel: ${escaparHtml(telefone)}</div>` : ""}
       ${pedido.cliente?.documento ? `<div>Documento: ${escaparHtml(pedido.cliente.documento)}</div>` : ""}
-      ${pedido.cliente?.endereco ? `<div>Entrega: ${escaparHtml(pedido.cliente.endereco)}</div>` : ""}
+      ${endereco ? `<div>Entrega: ${escaparHtml(endereco)}</div>` : ""}
     </div>
     <div class="separador"></div>
     ${itens}
     <div class="separador"></div>
-    <div class="linha"><span>Subtotal</span><span>${formatarMoeda(Number(pedido.subtotal))}</span></div>
-    ${Number(pedido.desconto) > 0 ? `<div class="linha"><span>Desconto</span><span>- ${formatarMoeda(Number(pedido.desconto))}</span></div>` : ""}
+    ${pesoTotal > 0 ? `<div class="linha"><span>Peso total</span><span>${pesoTotal.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} kg</span></div>` : ""}
+    ${Number(pedido.taxaEntrega) > 0 ? `<div class="linha"><span>Taxa de entrega</span><span>${formatarMoeda(Number(pedido.taxaEntrega))}</span></div>` : ""}
     <div class="linha total"><span>TOTAL</span><span>${formatarMoeda(Number(pedido.total))}</span></div>
     <div class="separador"></div>
     <div>Pagamento:</div>
     <div>${pagamento}</div>
     ${vencimento}
-    <div class="rodape">Obrigado pela preferência!<br />Atendente: ${escaparHtml(nomeResponsavel)}</div>
-  </main>
-</body>
-</html>`;
+    <div class="rodape">Obrigado pela preferência!</div>`);
 }
 
 /**

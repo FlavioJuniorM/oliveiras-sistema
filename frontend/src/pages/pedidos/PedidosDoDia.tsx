@@ -178,11 +178,11 @@ function ModalComanda({ pedido, toleranciaPesagemPercentual, onFechar, onAtualiz
   const podeFinalizar = todosCortados && (status === "RECEBIDO" || status === "EM_PREPARO");
   const podeImprimir = ["EXPEDICAO", "PRONTO", "EM_ENTREGA", "ENTREGUE"].includes(status);
 
-  async function imprimir() {
+  async function imprimir(tipo: "corte" | "cliente") {
     setImprimindo(true);
     setErro("");
     try {
-      await imprimirPedidoTermico(pedido.id);
+      await imprimirPedidoTermico(pedido.id, tipo);
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não foi possível abrir a impressão.");
     } finally {
@@ -247,8 +247,9 @@ function ModalComanda({ pedido, toleranciaPesagemPercentual, onFechar, onAtualiz
         </div>; })}</div>
       {pesados > 0 && <div className="mt-4 flex items-center justify-between rounded-lg bg-background px-4 py-3"><span className="text-sm font-semibold text-ink">{todosCortados ? "Valor da comanda" : `Parcial (${pesados} de ${pedido.itens.length} itens pesados)`}</span><span className={`font-display text-3xl ${todosCortados ? "text-gold" : "text-muted"}`}>{formatarMoeda(totalPesado)}</span></div>}
       {erro && <p className="mt-4 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
+      {podeImprimir && <div className="mt-6 rounded-lg border-2 border-success/30 bg-success/5 p-4"><p className="font-display text-2xl uppercase text-ink">Comanda fechada</p><p className="mt-1 text-sm text-muted">Imprima a nota com a logo, os pesos e o valor total para enviar ao cliente.</p><Button className="mt-4 w-full" tamanho="grande" disabled={imprimindo} onClick={() => imprimir("cliente")}>{imprimindo ? "Preparando impressão..." : "Imprimir nota do cliente"}</Button></div>}
       {podeFinalizar && <div className="mt-6 rounded-lg border-2 border-primary/20 bg-primary/5 p-4"><p className="font-display text-2xl uppercase text-ink">Tudo pesado</p><p className="mt-1 text-sm text-muted">Confira o valor e defina o pagamento para enviar à expedição.</p><Button className="mt-4 w-full" tamanho="grande" onClick={() => setFinalizacaoAberta(true)}>Fechar comanda</Button></div>}
-      <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between"><div className="flex flex-col gap-2 sm:flex-row"><Button variante="secundaria" onClick={onFechar}>Fechar</Button>{podeImprimir && <Button variante="secundaria" disabled={imprimindo} onClick={imprimir}>{imprimindo ? "Preparando impressão..." : "Imprimir nota térmica 58 mm"}</Button>}</div>{proximo && status !== "EM_PREPARO" && status !== "RECEBIDO" && <Button tamanho="grande" disabled={carregando === "status"} onClick={avancar}>{carregando === "status" ? "Atualizando..." : `Enviar para ${STATUS_CONFIG[proximo].titulo.toLowerCase()}`}</Button>}</div>
+      <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between"><div className="flex flex-col gap-2 sm:flex-row"><Button variante="secundaria" onClick={onFechar}>Fechar</Button><Button variante="secundaria" disabled={imprimindo} onClick={() => imprimir("corte")}>Imprimir pedido para os cortes</Button></div>{proximo && status !== "EM_PREPARO" && status !== "RECEBIDO" && <Button tamanho="grande" disabled={carregando === "status"} onClick={avancar}>{carregando === "status" ? "Atualizando..." : `Enviar para ${STATUS_CONFIG[proximo].titulo.toLowerCase()}`}</Button>}</div>
     </div></div>{finalizacaoAberta && <ModalFinalizacao pedido={pedido} onFechar={() => setFinalizacaoAberta(false)} onFinalizado={(atualizado) => { setFinalizacaoAberta(false); onAtualizado(atualizado); }} />}</div>;
 }
 

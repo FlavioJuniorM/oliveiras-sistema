@@ -6,6 +6,7 @@ import { Card, CardTitulo } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { formatarQuantidadePedido } from "../../lib/formatadores";
+import { abrirJanelaImpressao, imprimirNaJanela, imprimirPedidoTermico } from "../../lib/impressao";
 
 interface ItemCarrinho {
   produto: Produto;
@@ -48,6 +49,7 @@ export function NovoPedido() {
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
   const [pedidoCriado, setPedidoCriado] = useState<{ id: string; numero: string } | null>(null);
+  const [avisoImpressao, setAvisoImpressao] = useState("");
 
   useEffect(() => {
     api<Produto[]>("/produtos").then(setProdutos).catch(() => setErro("Não foi possível carregar as carnes."));
@@ -128,10 +130,13 @@ export function NovoPedido() {
     fecharPesagem();
   }
 
-  async function salvarComanda() {
+  async function salvarComanda(imprimir: boolean) {
     setErro("");
+    setAvisoImpressao("");
     if (!clienteSelecionado) return setErro("Selecione o cliente da comanda ou cadastre-o antes de continuar.");
     if (carrinho.length === 0) return setErro("Adicione pelo menos uma carne ao pedido.");
+    // Abre a janela já no clique, senão o navegador bloqueia a impressão
+    const janela = imprimir ? abrirJanelaImpressao() : null;
     setEnviando(true);
     try {
       const pedido = await api<{ id: string; numero: string }>("/pedidos", {
@@ -142,7 +147,11 @@ export function NovoPedido() {
         },
       });
       setPedidoCriado(pedido);
+      if (imprimir) {
+        imprimirNaJanela(janela, pedido.id, "corte").catch((e) => setAvisoImpressao(e instanceof Error ? e.message : "Não foi possível imprimir."));
+      }
     } catch (e) {
+      janela?.close();
       setErro(e instanceof ErroApi ? e.message : "Erro ao registrar a comanda.");
     } finally {
       setEnviando(false);
@@ -155,18 +164,19 @@ export function NovoPedido() {
     setBuscaCliente("");
     setNovoCliente(null);
     setPedidoCriado(null);
+    setAvisoImpressao("");
     setBuscaProduto("");
     setErro("");
   }
 
   if (pedidoCriado) {
-    return <div className="mx-auto max-w-xl"><Card className="flex flex-col items-center gap-4 py-10 text-center"><div className="flex h-16 w-16 items-center justify-center rounded-full bg-success/10 text-3xl font-bold text-success">✓</div><div><p className="text-sm text-muted">Comanda registrada e enviada para a fila de cortes</p><p className="mt-1 font-display text-4xl tracking-wide text-ink">{pedidoCriado.numero}</p><p className="mt-2 text-sm text-muted">Os açougueiros já podem abrir esta comanda em “Pedidos do dia”.</p></div><div className="flex w-full flex-col gap-3 sm:flex-row"><Button className="flex-1" onClick={() => navegar("/pedidos")}>Acompanhar pedido</Button><Button variante="secundaria" className="flex-1" onClick={limparPedido}>Registrar outro pedido</Button></div></Card></div>;
+    return <div className="mx-auto max-w-xl"><Card className="flex flex-col items-center gap-4 py-10 text-center"><div className="flex h-16 w-16 items-center justify-center rounded-full bg-success/10 text-3xl font-bold text-success">✓</div><div><p className="text-sm text-muted">Comanda registrada e enviada para a fila de cortes</p><p className="mt-1 font-display text-4xl tracking-wide text-ink">{pedidoCriado.numero}</p><p className="mt-2 text-sm text-muted">Os açougueiros já podem abrir esta comanda em “Pedidos do dia”.</p></div>{avisoImpressao && <p className="w-full rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{avisoImpressao}</p>}<Button variante="secundaria" className="w-full" onClick={() => { setAvisoImpressao(""); imprimirPedidoTermico(pedidoCriado.id, "corte").catch((e) => setAvisoImpressao(e instanceof Error ? e.message : "Não foi possível imprimir.")); }}>Imprimir pedido para os cortes</Button><div className="flex w-full flex-col gap-3 sm:flex-row"><Button className="flex-1" onClick={() => navegar("/pedidos")}>Acompanhar pedido</Button><Button variante="secundaria" className="flex-1" onClick={limparPedido}>Registrar outro pedido</Button></div></Card></div>;
   }
 
   return (
     <div className="flex flex-col gap-5">
       <div><p className="text-sm text-muted">Atendimento por telefone ou WhatsApp</p><h2 className="mt-1 font-display text-3xl uppercase tracking-wide text-ink">Novo pedido</h2><p className="mt-2 max-w-3xl text-sm text-muted">Anote exatamente o que o cliente pediu. Aqui não existe valor: o valor da comanda só aparece depois que cada corte é pesado.</p></div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3"><Etapa numero="1" titulo="Identificar cliente" ativa={Boolean(clienteSelecionado)} /><Etapa numero="2" titulo="Anotar carnes e pesos" ativa={carrinho.length > 0} /><Etapa numero="3" titulo="Enviar para os cortes" ativa={Boolean(clienteSelecionado && carrinho.length > 0)} /></div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3"><Etapa numero="1" titulo="Identificar cliente" ativa={Boolean(clienteSelecionado)} /><Etapa numero="2" titulo="Anotar carnes e pesos" ativa={carrinho.length > 0} /><Etapa numero="3" titulo="Imprimir e enviar para os cortes" ativa={Boolean(clienteSelecionado && carrinho.length > 0)} /></div>
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="flex flex-col gap-4 xl:col-span-2">
           <Card>
@@ -184,7 +194,7 @@ export function NovoPedido() {
           <div className="mt-3 divide-y divide-border">{carrinho.length === 0 && <p className="py-4 text-sm text-muted">Os itens anotados aparecerão aqui.</p>}{carrinho.map((item) => <div key={chaveItem(item)} className="flex items-start justify-between gap-3 py-3"><div><p className="font-semibold text-ink">{item.produto.nome}</p><p className="mt-1 text-sm text-muted">Pediu: <strong className="text-ink">{formatarQuantidadePedido(item.pesoOuQtd, item.unidadePedido)}</strong></p><button type="button" onClick={() => abrirPesagem(item.produto, item)} className="mt-1 text-xs font-semibold text-primary">Editar pedido</button></div><button type="button" onClick={() => setCarrinho((atual) => atual.filter((atualItem) => chaveItem(atualItem) !== chaveItem(item)))} className="text-xs font-semibold text-danger">Remover</button></div>)}</div>
           <div className="mt-4 border-t border-border pt-4"><p className="rounded-lg bg-gold/10 px-3 py-2 text-xs text-ink">Sem valor nesta etapa. Depois do corte, o peso da balança de cada item gera o valor da comanda.</p></div>
           {erro && <p className="mt-4 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
-          <Button className="mt-4 w-full" tamanho="grande" disabled={enviando || !clienteSelecionado || carrinho.length === 0} onClick={salvarComanda}>{enviando ? "Registrando..." : "Salvar comanda e enviar para cortes"}</Button>
+          <Button className="mt-4 w-full" tamanho="grande" disabled={enviando || !clienteSelecionado || carrinho.length === 0} onClick={() => salvarComanda(true)}>{enviando ? "Registrando..." : "Salvar e imprimir para o balcão"}</Button><Button variante="secundaria" className="mt-2 w-full" disabled={enviando || !clienteSelecionado || carrinho.length === 0} onClick={() => salvarComanda(false)}>Salvar sem imprimir</Button><p className="mt-2 text-center text-xs text-muted">Impressão térmica 58 mm, sem valores — para os açougueiros.</p>
         </Card>
       </div>
       {produtoParaPesar && <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 px-4"><Card className="w-full max-w-sm"><CardTitulo>{itemEditandoChave ? "Editar pedido" : "Adicionar ao pedido"}</CardTitulo><p className="mt-1 text-sm text-muted">{produtoParaPesar.nome}</p><div className="mt-4 flex flex-col gap-3"><div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-ink">Unidade do pedido</label><select value={unidadeDigitada} onChange={(e) => setUnidadeDigitada(e.target.value as UnidadePedido)} className="h-11 rounded-lg border border-border bg-white px-3.5 text-sm">{UNIDADES_PEDIDO.map((unidade) => <option key={unidade.valor} value={unidade.valor}>{unidade.rotulo}</option>)}</select></div><Input label={unidadeDigitada === "kg" ? "Quantos quilos?" : unidadeDigitada === "g" ? "Quantos gramas?" : "Quantas unidades / peças?"} inputMode="decimal" placeholder={unidadeDigitada === "g" ? "Ex.: 500" : unidadeDigitada === "kg" ? "Ex.: 2,5" : "Ex.: 15"} value={pesoDigitado} onChange={(e) => setPesoDigitado(e.target.value)} onKeyDown={(e) => e.key === "Enter" && confirmarPesagem()} autoFocus />{unidadeDigitada === "unidade" && produtoParaPesar.tipoVenda === "PESO" && <p className="rounded-lg bg-gold/10 px-3 py-2 text-xs text-ink">Anotado em unidades, mas cobrado pelo <strong>peso da balança</strong> depois do corte.</p>}</div><div className="mt-4 flex gap-2"><Button variante="secundaria" className="flex-1" onClick={fecharPesagem}>Cancelar</Button><Button className="flex-1" onClick={confirmarPesagem}>{itemEditandoChave ? "Salvar alteração" : "Adicionar carne"}</Button></div></Card></div>}
