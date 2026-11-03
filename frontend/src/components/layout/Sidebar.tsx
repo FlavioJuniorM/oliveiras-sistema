@@ -36,6 +36,7 @@ const GRUPOS: { titulo: string; itens: ItemMenu[] }[] = [
     itens: [
       { rotulo: "Relatórios", para: "/relatorios", somenteAdmin: true },
       { rotulo: "Usuários", para: "/usuarios", somenteAdmin: true },
+      { rotulo: "Configurações", para: "/configuracoes", somenteAdmin: true },
     ],
   },
 ];

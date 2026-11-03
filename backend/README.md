@@ -47,6 +47,14 @@ e `npm run db:stop` para pará-lo. Os dados ficam em `.postgresql/data`.
    A resposta traz um `token` — use-o nas próximas requisições como
    `Authorization: Bearer <token>`.
 
+8. Execute os testes das regras de pedido:
+   ```
+   npm test
+   ```
+
+   Esses testes validam cálculos por peso/unidade, descontos e divisão de
+   pagamentos sem exigir um banco PostgreSQL.
+
 ## Fase 2: Clientes e Produtos (já implementada)
 
 Clientes:
@@ -130,6 +138,20 @@ a pagar próximas do vencimento.
 Login, usuários, clientes, produtos/carnes, pedidos/comandas com cálculo automático,
 formas e status de pagamento, contas a receber, impressão, dashboard, histórico/auditoria,
 contas a pagar e relatórios — todos implementados.
+
+## Fundação dos pedidos públicos
+
+A migration `20261025120000_pedido_publico` prepara os pedidos para os próximos fluxos
+sem alterar os pedidos internos existentes. Ela adiciona canal do pedido, retirada ou
+delivery, momento do pagamento, dados de contato/endereço do cliente, taxa de entrega,
+token de acompanhamento e histórico persistido de status operacional.
+
+Os pedidos criados pelo painel passam a receber automaticamente um token de
+acompanhamento e o primeiro registro de status (`RECEBIDO`).
+
+## Tolerância de pesagem
+
+A tolerância global fica em `configuracoes_sistema`, com padrão de 10%. Administradores podem consultar e alterar o percentual em `/configuracoes` no painel. O backend valida a tolerância ao confirmar o peso real de produtos vendidos por peso; valores acima do limite são rejeitados para correção antes da expedição.
 
 ## Possíveis próximos passos (fase 2 da especificação)
 

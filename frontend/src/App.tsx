@@ -12,12 +12,17 @@ import { ContasReceber } from "./pages/financeiro/ContasReceber";
 import { ContasPagar } from "./pages/financeiro/ContasPagar";
 import { Relatorios } from "./pages/relatorios/Relatorios";
 import { Usuarios } from "./pages/usuarios/Usuarios";
+import { AcompanhamentoPedido, CatalogoPublico, CheckoutPublico } from "./pages/publico/PedidoPublico";
+import { Configuracoes } from "./pages/configuracoes/Configuracoes";
 
 export default function App() {
   return (
     <AuthProvider>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/pedir" element={<CatalogoPublico />} />
+        <Route path="/pedir/checkout" element={<CheckoutPublico />} />
+        <Route path="/acompanhar/:token" element={<AcompanhamentoPedido />} />
 
         <Route
           element={
@@ -67,6 +72,14 @@ export default function App() {
             element={
               <RotaProtegida somenteAdmin>
                 <Usuarios />
+              </RotaProtegida>
+            }
+          />
+          <Route
+            path="/configuracoes"
+            element={
+              <RotaProtegida somenteAdmin>
+                <Configuracoes />
               </RotaProtegida>
             }
           />

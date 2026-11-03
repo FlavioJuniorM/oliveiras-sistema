@@ -58,6 +58,7 @@ export async function gerarComandaTermica(pedidoId: string, largura: 32 | 42 = 3
   const dados = await montarDadosComanda(pedidoId);
   if (!dados) return null;
   const { pedido, formasResumo } = dados;
+  const nomeResponsavel = pedido.usuario?.nome ?? "Pedido online";
 
   const linha = "-".repeat(largura);
   const centralizar = (texto: string) =>
@@ -111,7 +112,7 @@ export async function gerarComandaTermica(pedidoId: string, largura: 32 | 42 = 3
   }
 
   linhas.push(linha);
-  linhas.push(`Atendente: ${pedido.usuario.nome}`);
+  linhas.push(`Atendente: ${nomeResponsavel}`);
   linhas.push(centralizar("Obrigado pela preferência!"));
 
   return linhas.join("\n");
@@ -122,6 +123,7 @@ export async function gerarComandaTermicaHtml(pedidoId: string) {
   const dados = await montarDadosComanda(pedidoId);
   if (!dados) return null;
   const { pedido, formasResumo } = dados;
+  const nomeResponsavel = pedido.usuario?.nome ?? "Pedido online";
   const cliente = pedido.cliente?.nomeFantasia || pedido.cliente?.razaoSocial || pedido.cliente?.nome || "Consumidor final";
   const itens = pedido.itens.map((item) => {
     const unidade = item.unidadePedido || item.produto.unidadeMedida || "un";
@@ -189,7 +191,7 @@ export async function gerarComandaTermicaHtml(pedidoId: string) {
     <div>Pagamento:</div>
     <div>${pagamento}</div>
     ${vencimento}
-    <div class="rodape">Obrigado pela preferência!<br />Atendente: ${escaparHtml(pedido.usuario.nome)}</div>
+    <div class="rodape">Obrigado pela preferência!<br />Atendente: ${escaparHtml(nomeResponsavel)}</div>
   </main>
 </body>
 </html>`;
@@ -202,6 +204,7 @@ export async function gerarComandaA4Html(pedidoId: string) {
   const dados = await montarDadosComanda(pedidoId);
   if (!dados) return null;
   const { pedido, formasResumo } = dados;
+  const nomeResponsavel = pedido.usuario?.nome ?? "Pedido online";
 
   const linhasItens = pedido.itens
     .map(
@@ -263,7 +266,7 @@ export async function gerarComandaA4Html(pedidoId: string) {
   ${blocoSaldo}
 
   <div class="rodape">
-    <p>Atendente: ${pedido.usuario.nome}</p>
+    <p>Atendente: ${nomeResponsavel}</p>
     <p>Obrigado pela preferência!</p>
   </div>
 </body>

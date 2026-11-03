@@ -21,7 +21,7 @@ const STATUS_CONFIG: Record<string, { titulo: string; descricao: string; fundo: 
 };
 
 function nomeDoCliente(pedido: Pedido) {
-  return pedido.cliente?.nomeFantasia || pedido.cliente?.razaoSocial || pedido.cliente?.nome || "Consumidor final";
+  return pedido.cliente?.nomeFantasia || pedido.cliente?.razaoSocial || pedido.cliente?.nome || pedido.nomeCliente || "Consumidor final";
 }
 
 function nomeResponsavel(responsavel?: { nome: string } | null) {
@@ -36,6 +36,10 @@ function rotuloUnidade(unidade?: string, fallback = "unidade") {
   if (unidadeNormalizada === "unidade") return "unidade";
   if (unidadeNormalizada === "outra") return "unidade";
   return fallback;
+}
+
+function limitePesoComTolerancia(solicitado: number, toleranciaPercentual: number) {
+  return solicitado * (1 + toleranciaPercentual / 100);
 }
 
 function prepararPedidoParaExibicao(pedido: Pedido): Pedido {
@@ -59,11 +63,16 @@ export function PedidosDoDia() {
   const [carregando, setCarregando] = useState(true);
   const [comandaAberta, setComandaAberta] = useState<Pedido | null>(null);
   const [erro, setErro] = useState("");
+  const [toleranciaPesagemPercentual, setToleranciaPesagemPercentual] = useState(10);
 
   const carregarPedidos = useCallback(async () => {
     try {
-      const resposta = await api<Pedido[]>("/pedidos");
+      const [resposta, configuracao] = await Promise.all([
+        api<Pedido[]>("/pedidos"),
+        api<{ toleranciaPesagemPercentual: number }>("/configuracoes/pesagem"),
+      ]);
       setPedidos(resposta.map(prepararPedidoParaExibicao));
+      setToleranciaPesagemPercentual(configuracao.toleranciaPesagemPercentual);
       setErro("");
     } catch (e) {
       setErro(e instanceof ErroApi ? e.message : "Não foi possível carregar os pedidos.");
@@ -108,7 +117,7 @@ export function PedidosDoDia() {
           </button>;
         })}
       </div>
-      {comandaAberta && <ModalComanda pedido={comandaAberta} onFechar={() => setComandaAberta(null)} onAtualizado={atualizarPedidoNaLista} />}
+      {comandaAberta && <ModalComanda pedido={comandaAberta} toleranciaPesagemPercentual={toleranciaPesagemPercentual} onFechar={() => setComandaAberta(null)} onAtualizado={atualizarPedidoNaLista} />}
     </div>
   );
 }
@@ -117,7 +126,7 @@ function Filtro({ titulo, quantidade, ativo, onClick }: { titulo: string; quanti
   return <button type="button" onClick={onClick} className={`rounded-card border p-3 text-left transition ${ativo ? "border-primary bg-primary text-white" : "border-border bg-surface hover:border-primary"}`}><p className="text-xs font-semibold uppercase tracking-wide opacity-80">{titulo}</p><p className={`mt-1 font-display text-3xl ${ativo ? "text-white" : "text-ink"}`}>{quantidade}</p></button>;
 }
 
-function ModalComanda({ pedido, onFechar, onAtualizado }: { pedido: Pedido; onFechar: () => void; onAtualizado: (pedido: Pedido) => void }) {
+function ModalComanda({ pedido, toleranciaPesagemPercentual, onFechar, onAtualizado }: { pedido: Pedido; toleranciaPesagemPercentual: number; onFechar: () => void; onAtualizado: (pedido: Pedido) => void }) {
   const { usuario } = useAuth();
   const [peso, setPeso] = useState<Record<string, string>>({});
   const [carregando, setCarregando] = useState("");
@@ -176,8 +185,33 @@ function ModalComanda({ pedido, onFechar, onAtualizado }: { pedido: Pedido; onFe
   return <div className="fixed inset-0 z-40 overflow-y-auto bg-black/50 px-3 py-5 sm:px-6"><div className="mx-auto max-w-4xl overflow-hidden rounded-card bg-surface shadow-2xl"><div className={`flex items-start justify-between px-6 py-5 ${config.fundo}`}><div><p className="font-display text-3xl text-ink">Comanda {pedido.numero}</p><p className="mt-1 text-sm text-muted">{nomeDoCliente(pedido)} · {formatarDataHora(pedido.criadoEm)}</p></div><button type="button" onClick={onFechar} className="text-2xl text-muted hover:text-ink" aria-label="Fechar">×</button></div><div className="p-6"><div className="mb-5 rounded-lg border border-primary/20 bg-primary/5 p-4"><div className="flex flex-wrap items-center gap-3"><StatusBadge status={status} /><p className="text-sm text-ink">O primeiro açougueiro que iniciar um corte fica responsável por concluí-lo.</p></div></div><div className="space-y-3">{pedido.itens.map((item) => { const cortado = item.statusPreparo === "CORTADO"; const emCorte = item.statusPreparo === "EM_CORTE"; const outroAçougueiro = Boolean(emCorte && item.preparadoPor?.id && item.preparadoPor.id !== usuario?.id); const pesoAtual = Number(peso[item.id]?.replace(",", ".") || 0); const solicitado = Number(item.pesoOuQtd); const pesoFinal = Number(item.pesoReal ?? 0); const excedeu = item.produto?.tipoVenda === "PESO" && ((cortado ? pesoFinal : pesoAtual) > solicitado + 1); return <div key={item.id} className={`rounded-lg border p-4 ${cortado ? "border-success/30 bg-success/5" : emCorte ? "border-gold/40 bg-gold/5" : "border-border"}`}><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-lg font-semibold text-ink">{item.produto?.nome || "Carne / produto"}</p><p className="text-sm text-muted">Solicitado: <strong className="text-ink">{solicitado.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {item.produto?.unidadeMedida || "unidade"}</strong> · Preço: {formatarMoeda(item.precoUnitario)}/{item.produto?.unidadeMedida || "unidade"}</p><p className="mt-1 text-xs text-muted">Responsável: <strong className="text-ink">{nomeResponsavel(item.preparadoPor)}</strong> · Conferiu: <strong className="text-ink">{nomeResponsavel(item.cortadoPor)}</strong></p></div><StatusBadge status={item.statusPreparo} /></div>{cortado ? <div className="mt-3 rounded-lg bg-white/70 p-3 text-sm"><div className="grid grid-cols-1 gap-2 sm:grid-cols-3"><p className="text-muted">Solicitado<strong className="block text-ink">{solicitado.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {item.produto?.unidadeMedida}</strong></p><p className="text-muted">Peso real<strong className="block text-success">{pesoFinal.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {item.produto?.unidadeMedida}</strong></p><p className="text-muted">Subtotal<strong className="block text-ink">{formatarMoeda(item.subtotal)}</strong></p></div>{excedeu && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-xs font-semibold text-danger">Atenção: o peso real passou {((pesoFinal - solicitado).toLocaleString("pt-BR", { maximumFractionDigits: 3 }))} {item.produto?.unidadeMedida} do solicitado.</p>}<p className="mt-2 text-xs text-muted">Preparou: {nomeResponsavel(item.preparadoPor)} · Cortou: {nomeResponsavel(item.cortadoPor)}</p></div> : <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end"><Input label={emCorte ? "Peso real após o corte" : "Peso real (preencher ao terminar)"} type="number" step="0.001" placeholder={String(item.pesoOuQtd)} value={peso[item.id] || ""} disabled={outroAçougueiro} onChange={(e) => setPeso((atual) => ({ ...atual, [item.id]: e.target.value }))} /><Button variante={emCorte ? "primaria" : "secundaria"} disabled={carregando === item.id || outroAçougueiro} onClick={() => atualizarItem(item.id, emCorte ? "CORTADO" : "EM_CORTE")}>{carregando === item.id ? "Salvando..." : outroAçougueiro ? `Em corte por ${item.preparadoPor?.nome}` : emCorte ? "Confirmar corte" : "Iniciar meu corte"}</Button></div>}{!cortado && pesoAtual > solicitado + 1 && <p className="mt-2 rounded-lg bg-danger/10 px-3 py-2 text-xs font-semibold text-danger">Atenção: este peso está mais de 1 {item.produto?.unidadeMedida} acima do solicitado.</p>}{cortado && <Button variante="fantasma" className="mt-2 px-0" disabled={item.preparadoPor?.id ? item.preparadoPor.id !== usuario?.id : false} onClick={() => atualizarItem(item.id, "EM_CORTE")}>Reabrir corte para corrigir peso</Button>}</div>; })}</div>{erro && <p className="mt-4 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}{podeFinalizar && <div className="mt-6 rounded-lg border-2 border-primary/20 bg-primary/5 p-4"><p className="font-display text-2xl uppercase text-ink">Todos os cortes conferidos</p><p className="mt-1 text-sm text-muted">Revise os pesos reais e finalize a condição de pagamento para enviar à expedição.</p><Button className="mt-4 w-full" tamanho="grande" onClick={() => setFinalizacaoAberta(true)}>Conferir pedido e finalizar</Button></div>}<div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between"><div className="flex flex-col gap-2 sm:flex-row"><Button variante="secundaria" onClick={onFechar}>Fechar</Button>{podeImprimir && <Button variante="secundaria" disabled={imprimindo} onClick={imprimir}>{imprimindo ? "Preparando impressão..." : "Imprimir nota térmica 58 mm"}</Button>}</div>{proximo && status !== "EM_PREPARO" && <Button tamanho="grande" disabled={carregando === "status"} onClick={avancar}>{carregando === "status" ? "Atualizando..." : `Enviar para ${STATUS_CONFIG[proximo].titulo.toLowerCase()}`}</Button>}</div></div></div>{finalizacaoAberta && <ModalFinalizacao pedido={pedido} onFechar={() => setFinalizacaoAberta(false)} onFinalizado={(atualizado) => { setFinalizacaoAberta(false); onAtualizado(atualizado); }} />}</div>;
 }
 
+function ModalFinalizacaoPublico({ pedido, formaPagamento, onFechar, onFinalizado }: { pedido: Pedido; formaPagamento: string; onFechar: () => void; onFinalizado: (pedido: Pedido) => void }) {
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const delivery = pedido.tipoEntrega === "DELIVERY";
+
+  async function confirmar() {
+    setSalvando(true);
+    setErro("");
+    try {
+      const atualizado = await api<Pedido>(`/pedidos/${pedido.id}/finalizar-conferencia`, {
+        method: "POST",
+        body: { formaPagamento },
+      });
+      onFinalizado(atualizado);
+    } catch (e) {
+      setErro(e instanceof ErroApi ? e.message : "Não foi possível finalizar o pedido público.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-3 py-5 sm:px-6"><div className="mx-auto max-w-3xl overflow-hidden rounded-card bg-surface shadow-2xl"><div className="flex items-start justify-between bg-ink px-6 py-5 text-white"><div><p className="font-display text-3xl uppercase">Conferência do pedido online</p><p className="mt-1 text-sm text-white/70">Comanda {pedido.numero} · {nomeDoCliente(pedido)}</p></div><button type="button" onClick={onFechar} className="text-2xl text-white/70">×</button></div><div className="p-6"><div className="grid gap-3 sm:grid-cols-2"><div className="rounded-lg border border-border bg-background p-4"><p className="text-xs uppercase tracking-wide text-muted">Cliente</p><p className="mt-1 font-semibold text-ink">{nomeDoCliente(pedido)}</p><p className="mt-1 text-sm text-muted">{pedido.telefoneCliente || "Telefone não informado"}</p></div><div className="rounded-lg border border-border bg-background p-4"><p className="text-xs uppercase tracking-wide text-muted">Recebimento</p><p className="mt-1 font-semibold text-ink">{delivery ? "Delivery" : "Retirada na loja"}</p><p className="mt-1 text-sm text-muted">Pagamento {delivery ? "na entrega" : "na retirada"}</p></div></div>{delivery && pedido.enderecoEntrega && <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-4"><p className="text-xs uppercase tracking-wide text-muted">Endereço de entrega</p><p className="mt-1 text-sm font-semibold text-ink">{pedido.enderecoEntrega}</p></div>}{pedido.observacoesCliente && <div className="mt-3 rounded-lg border border-border p-4"><p className="text-xs uppercase tracking-wide text-muted">Observações do cliente</p><p className="mt-1 text-sm text-ink">{pedido.observacoesCliente}</p></div>}<div className="mt-5 overflow-hidden rounded-lg border border-border"><div className="divide-y divide-border">{pedido.itens.map((item) => <div key={item.id} className="flex items-start justify-between gap-3 px-4 py-3"><div><p className="font-semibold text-ink">{item.produto?.nome || "Produto"}</p><p className="mt-1 text-xs text-muted">Solicitado: {Number(item.pesoOuQtd).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {item.produto?.unidadeMedida} · Real: {Number(item.pesoReal ?? item.pesoOuQtd).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {item.produto?.unidadeMedida}</p></div><strong className="text-ink">{formatarMoeda(item.subtotal)}</strong></div>)}<div className="flex items-center justify-between bg-background px-4 py-4"><span className="font-semibold text-ink">Valor final</span><span className="font-display text-3xl text-gold">{formatarMoeda(pedido.total)}</span></div></div></div><div className="mt-5 rounded-lg border-2 border-primary/20 bg-primary/5 p-5"><p className="font-display text-2xl uppercase text-ink">Pedido pronto para expedição</p><p className="mt-1 text-sm text-muted">O pagamento ficará pendente até o momento combinado com o cliente: {delivery ? "na entrega" : "na retirada"}.</p>{erro && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}</div><div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Button variante="secundaria" onClick={onFechar}>Voltar para a comanda</Button><Button tamanho="grande" disabled={salvando} onClick={confirmar}>{salvando ? "Finalizando..." : "Confirmar e enviar para expedição"}</Button></div></div></div></div>;
+}
+
 function ModalFinalizacao({ pedido, onFechar, onFinalizado }: { pedido: Pedido; onFechar: () => void; onFinalizado: (pedido: Pedido) => void }) {
-  const [forma, setForma] = useState("DINHEIRO");
+  const pedidoPublico = pedido.canal === "PUBLICO";
+  const [forma, setForma] = useState(pedidoPublico ? (pedido.tipoEntrega === "DELIVERY" ? "NA_ENTREGA" : "NA_RETIRADA") : "DINHEIRO");
   const [vencimento, setVencimento] = useState("");
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -193,6 +227,9 @@ function ModalFinalizacao({ pedido, onFechar, onFinalizado }: { pedido: Pedido; 
     } finally {
       setSalvando(false);
     }
+  }
+  if (pedidoPublico) {
+    return <ModalFinalizacaoPublico pedido={pedido} formaPagamento={forma} onFechar={onFechar} onFinalizado={onFinalizado} />;
   }
   return <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-3 py-5 sm:px-6"><div className="mx-auto max-w-3xl overflow-hidden rounded-card bg-surface shadow-2xl"><div className="flex items-start justify-between bg-ink px-6 py-5 text-white"><div><p className="font-display text-3xl uppercase">Conferência final</p><p className="mt-1 text-sm text-white/70">Comanda {pedido.numero} · {nomeDoCliente(pedido)}</p></div><button type="button" onClick={onFechar} className="text-2xl text-white/70">×</button></div><div className="p-6"><p className="text-sm text-muted">Confira o que foi solicitado, o peso real de cada corte e o valor final da nota.</p><div className="mt-4 overflow-hidden rounded-lg border border-border"><div className="hidden grid-cols-5 gap-3 bg-background px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted sm:grid"><span>Carne</span><span>Solicitado</span><span>Peso real</span><span>Preço</span><span className="text-right">Subtotal</span></div><div className="divide-y divide-border">{pedido.itens.map((item) => { const solicitado = Number(item.pesoOuQtd); const real = Number(item.pesoReal ?? item.pesoOuQtd); const passou = item.produto?.tipoVenda === "PESO" && real > solicitado + 1; return <div key={item.id} className="grid grid-cols-2 gap-2 px-4 py-3 text-sm sm:grid-cols-5 sm:gap-3"><div><p className="font-semibold text-ink">{item.produto?.nome}</p><p className="text-xs text-muted sm:hidden">Solicitado: {solicitado} · Real: {real}</p></div><span className="hidden text-muted sm:block">{solicitado} {item.produto?.unidadeMedida}</span><span className={`hidden sm:block ${passou ? "font-bold text-danger" : "text-success"}`}>{real} {item.produto?.unidadeMedida}</span><span className="hidden text-muted sm:block">{formatarMoeda(item.precoUnitario)}/{item.produto?.unidadeMedida}</span><span className="col-span-2 text-right font-semibold text-ink sm:col-span-1">{formatarMoeda(item.subtotal)}</span>{passou && <p className="col-span-2 rounded bg-danger/10 px-2 py-1 text-xs font-semibold text-danger sm:col-span-5">Peso real acima do solicitado em {(real - solicitado).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {item.produto?.unidadeMedida}.</p>}</div>; })}<div className="flex items-center justify-between bg-background px-4 py-4"><span className="font-semibold text-ink">Valor final da nota</span><span className="font-display text-3xl text-gold">{formatarMoeda(pedido.total)}</span></div></div></div><div className="mt-6 rounded-lg border-2 border-primary/20 bg-primary/5 p-5"><p className="font-display text-2xl uppercase text-ink">Condição de pagamento</p><p className="mt-1 text-sm text-muted">Escolha como o cliente vai pagar esta comanda.</p><div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2"><button type="button" onClick={() => setForma("DINHEIRO")} className={`rounded-lg border p-4 text-left ${forma !== "A_PRAZO" ? "border-primary bg-white" : "border-border bg-surface"}`}><p className="font-semibold text-ink">Pagamento à vista</p><p className="mt-1 text-xs text-muted">Receber agora</p></button><button type="button" onClick={() => setForma("A_PRAZO")} className={`rounded-lg border p-4 text-left ${forma === "A_PRAZO" ? "border-primary bg-white" : "border-border bg-surface"}`}><p className="font-semibold text-ink">Pagamento posterior</p><p className="mt-1 text-xs text-muted">Lançar em contas a receber</p></button></div>{forma !== "A_PRAZO" && <div className="mt-3"><label className="text-sm font-medium text-ink">Forma à vista</label><select value={forma} onChange={(e) => setForma(e.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-white px-3.5 text-sm"><option value="DINHEIRO">Dinheiro</option><option value="PIX">Pix</option><option value="CARTAO_DEBITO">Cartão de débito</option><option value="CARTAO_CREDITO">Cartão de crédito</option><option value="TRANSFERENCIA">Transferência</option></select></div>}{forma === "A_PRAZO" && <div className="mt-3"><Input label="Data para pagamento" type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} required /></div>}{erro && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}</div><div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Button variante="secundaria" onClick={onFechar}>Voltar para a comanda</Button><Button tamanho="grande" disabled={salvando} onClick={confirmar}>{salvando ? "Finalizando..." : "Finalizar e enviar para expedição"}</Button></div></div></div></div>;
 }

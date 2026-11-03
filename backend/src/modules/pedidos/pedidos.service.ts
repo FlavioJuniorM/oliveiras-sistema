@@ -1,6 +1,21 @@
+import { randomBytes } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database";
 import { registrarLog } from "../../shared/registrarLog";
 import { gerarNumeroPedido } from "./numeroPedido";
+import {
+  excedeToleranciaPesagem,
+  obterConfiguracaoPesagem,
+} from "../configuracoes/configuracoes.service";
+import {
+  calcularSubtotalItem,
+  calcularTotaisPedido,
+  quantidadeParaPreco,
+  TOLERANCIA_CENTAVOS,
+  unidadePadraoProduto,
+  validarDesconto,
+  validarPagamentoPedido,
+} from "./regras";
 
 interface ItemPedidoInput {
   produtoId: string;
@@ -9,19 +24,6 @@ interface ItemPedidoInput {
 }
 
 export type UnidadePedido = "kg" | "g" | "peca" | "unidade" | "outra";
-
-function unidadePadraoProduto(produto: { unidadeMedida: string }): UnidadePedido {
-  const unidade = produto.unidadeMedida.toLowerCase();
-  if (unidade === "g" || unidade.includes("gram")) return "g";
-  if (unidade === "un" || unidade.includes("pec")) return "peca";
-  if (unidade.includes("unid")) return "unidade";
-  return "kg";
-}
-
-function quantidadeParaPreco(quantidade: number, unidade: UnidadePedido, unidadeProduto: string) {
-  const produtoEmQuilo = unidadeProduto.toLowerCase() === "kg" || unidadeProduto.toLowerCase().includes("quilo");
-  return unidade === "g" && produtoEmQuilo ? quantidade / 1000 : quantidade;
-}
 
 interface PagamentoImediatoInput {
   forma:
@@ -42,13 +44,31 @@ interface CriarPedidoInput {
   pagamentos: PagamentoImediatoInput[]; // formas de pagamento recebidas AGORA
   valorAPrazo?: number; // parte do total que fica como conta a receber
   vencimento?: Date; // obrigatório se valorAPrazo > 0
-  usuarioId: string;
-  papelUsuario: "FUNCIONARIO" | "ADMINISTRATIVO";
+  usuarioId?: string;
+  papelUsuario?: "FUNCIONARIO" | "ADMINISTRATIVO";
+  canal?: "INTERNO" | "PUBLICO";
+  tipoEntrega?: "RETIRADA" | "DELIVERY";
+  momentoPagamento?: "NA_RETIRADA" | "NA_ENTREGA";
+  taxaEntrega?: number;
+  nomeCliente?: string;
+  telefoneCliente?: string;
+  emailCliente?: string;
+  enderecoEntrega?: string;
+  observacoesCliente?: string;
 }
 
 export class ErroPedido extends Error {}
 
-const TOLERANCIA_CENTAVOS = 0.01;
+async function registrarHistoricoStatus(
+  tx: Prisma.TransactionClient,
+  pedidoId: string,
+  status: StatusOperacaoPedido,
+  observacao?: string
+) {
+  await tx.pedidoStatusHistorico.create({
+    data: { pedidoId, status, observacao },
+  });
+}
 
 export async function criarPedido(input: CriarPedidoInput) {
   const {
@@ -59,7 +79,16 @@ export async function criarPedido(input: CriarPedidoInput) {
     valorAPrazo = 0,
     vencimento,
     usuarioId,
-    papelUsuario,
+    papelUsuario = "FUNCIONARIO",
+    canal = "INTERNO",
+    tipoEntrega = "RETIRADA",
+    momentoPagamento,
+    taxaEntrega = 0,
+    nomeCliente,
+    telefoneCliente,
+    emailCliente,
+    enderecoEntrega,
+    observacoesCliente,
   } = input;
 
   if (itens.length === 0) {
@@ -67,8 +96,10 @@ export async function criarPedido(input: CriarPedidoInput) {
   }
 
   // Regra 1 da especificação: desconto só é permitido para o papel administrativo
-  if (desconto > 0 && papelUsuario !== "ADMINISTRATIVO") {
-    throw new ErroPedido("Aplicar desconto requer autorização administrativa.");
+  try {
+    validarDesconto(desconto, papelUsuario);
+  } catch (erro) {
+    throw new ErroPedido((erro as Error).message);
   }
 
   // Busca os produtos e usa o PREÇO ATUAL do cadastro — o funcionário nunca informa preço
@@ -90,8 +121,13 @@ export async function criarPedido(input: CriarPedidoInput) {
     }
 
     const precoUnitario = Number(produto.preco);
-    const unidadePedido = item.unidadePedido ?? unidadePadraoProduto(produto);
-    const subtotalItem = Number((precoUnitario * quantidadeParaPreco(item.pesoOuQtd, unidadePedido, produto.unidadeMedida)).toFixed(2));
+    const unidadePedido = item.unidadePedido ?? unidadePadraoProduto(produto.unidadeMedida);
+    const subtotalItem = calcularSubtotalItem(
+      precoUnitario,
+      item.pesoOuQtd,
+      unidadePedido,
+      produto.unidadeMedida
+    );
 
     return {
       produtoId: produto.id,
@@ -103,53 +139,55 @@ export async function criarPedido(input: CriarPedidoInput) {
     };
   });
 
-  const subtotal = Number(
-    itensCalculados.reduce((soma, i) => soma + i.subtotal, 0).toFixed(2)
+  const { subtotal, total } = calcularTotaisPedido(
+    itensCalculados.map((item) => item.subtotal),
+    desconto
   );
-  const total = Number((subtotal - desconto).toFixed(2));
 
   if (total <= 0) {
     throw new ErroPedido("O valor total do pedido deve ser maior que zero.");
   }
 
-  const totalPagoImediato = Number(
-    pagamentos.reduce((soma, p) => soma + p.valor, 0).toFixed(2)
-  );
-  const saldoDevido = Number((total - totalPagoImediato).toFixed(2));
+  const totalPagoImediato = pagamentos.reduce((soma, pagamento) => soma + pagamento.valor, 0);
 
-  // Validações do split de pagamento (seção 7 — pagamento dividido)
-  if (saldoDevido > TOLERANCIA_CENTAVOS) {
-    const pedidoEmAberto = totalPagoImediato <= TOLERANCIA_CENTAVOS && (!valorAPrazo || valorAPrazo <= TOLERANCIA_CENTAVOS);
-    if (!pedidoEmAberto && Math.abs(saldoDevido - (valorAPrazo || 0)) > TOLERANCIA_CENTAVOS) {
-      throw new ErroPedido(
-        "A soma dos pagamentos informados não fecha com o valor total do pedido."
-      );
-    }
-    if (!pedidoEmAberto && !vencimento) {
-      throw new ErroPedido("Informe o vencimento para a parte do pedido a prazo.");
-    }
-    if (!pedidoEmAberto && !clienteId) {
-      throw new ErroPedido("Vendas a prazo exigem um cliente cadastrado.");
-    }
-  } else if (totalPagoImediato - total > TOLERANCIA_CENTAVOS) {
-    throw new ErroPedido("O total pago não pode ser maior que o valor do pedido.");
+  if (pagamentos.length > 0 && !usuarioId) {
+    throw new ErroPedido("Pagamentos imediatos exigem um atendente autenticado.");
   }
 
-  const statusPagamento =
-    saldoDevido <= TOLERANCIA_CENTAVOS
-      ? "PAGO"
-      : totalPagoImediato > 0
-      ? "PARCIALMENTE_PAGO"
-      : "PENDENTE";
+  // Validações do split de pagamento (seção 7 — pagamento dividido)
+  let saldoDevido: number;
+  let statusPagamento: "PAGO" | "PARCIALMENTE_PAGO" | "PENDENTE";
+  try {
+    ({ saldoDevido, statusPagamento } = validarPagamentoPedido({
+      total,
+      totalPagoImediato,
+      valorAPrazo,
+      vencimento,
+      clienteId,
+    }));
+  } catch (erro) {
+    throw new ErroPedido((erro as Error).message);
+  }
 
   const pedido = await prisma.$transaction(async (tx) => {
     const numero = await gerarNumeroPedido(tx);
+    const tokenAcompanhamento = randomBytes(16).toString("hex");
 
     const pedidoCriado = await tx.pedido.create({
       data: {
         numero,
+        tokenAcompanhamento,
         clienteId,
         usuarioId,
+        canal,
+        tipoEntrega,
+        momentoPagamento,
+        taxaEntrega,
+        nomeCliente,
+        telefoneCliente,
+        emailCliente,
+        enderecoEntrega,
+        observacoesCliente,
         subtotal,
         desconto,
         total,
@@ -170,13 +208,15 @@ export async function criarPedido(input: CriarPedidoInput) {
                 create: pagamentos.map((p) => ({
                   forma: p.forma,
                   valor: p.valor,
-                  usuarioId,
+                  usuarioId: usuarioId!,
                 })),
               }
             : undefined,
       },
       include: { itens: true, pagamentos: true },
     });
+
+    await registrarHistoricoStatus(tx, pedidoCriado.id, "RECEBIDO", "Pedido criado");
 
     if (saldoDevido > TOLERANCIA_CENTAVOS && clienteId && valorAPrazo && valorAPrazo > TOLERANCIA_CENTAVOS) {
       await tx.contaReceber.create({
@@ -194,35 +234,57 @@ export async function criarPedido(input: CriarPedidoInput) {
     return pedidoCriado;
   });
 
-  await registrarLog({
-    usuarioId,
-    acao: "CRIOU_PEDIDO",
-    entidade: "pedido",
-    entidadeId: pedido.id,
-    detalhes: `Criou o pedido ${pedido.numero} — total R$ ${total}`,
-  });
-
-  for (const item of itensCalculados) {
+  if (usuarioId) {
     await registrarLog({
       usuarioId,
-      acao: "ADICIONOU_ITEM_PEDIDO",
+      acao: "CRIOU_PEDIDO",
       entidade: "pedido",
       entidadeId: pedido.id,
-      detalhes: `Adicionou ${item.nome} — ${item.pesoOuQtd} (R$ ${item.subtotal})`,
+      detalhes: `Criou o pedido ${pedido.numero} — total R$ ${total}`,
     });
-  }
 
-  if (statusPagamento === "PAGO") {
-    await registrarLog({
-      usuarioId,
-      acao: "FINALIZOU_PEDIDO",
-      entidade: "pedido",
-      entidadeId: pedido.id,
-      detalhes: `Finalizou o pedido ${pedido.numero} — pago integralmente`,
-    });
+    for (const item of itensCalculados) {
+      await registrarLog({
+        usuarioId,
+        acao: "ADICIONOU_ITEM_PEDIDO",
+        entidade: "pedido",
+        entidadeId: pedido.id,
+        detalhes: `Adicionou ${item.nome} — ${item.pesoOuQtd} (R$ ${item.subtotal})`,
+      });
+    }
+
+    if (statusPagamento === "PAGO") {
+      await registrarLog({
+        usuarioId,
+        acao: "FINALIZOU_PEDIDO",
+        entidade: "pedido",
+        entidadeId: pedido.id,
+        detalhes: `Finalizou o pedido ${pedido.numero} — pago integralmente`,
+      });
+    }
   }
 
   return pedido;
+}
+
+export async function criarPedidoPublico(input: {
+  nomeCliente: string;
+  telefoneCliente: string;
+  emailCliente?: string;
+  tipoEntrega: "RETIRADA" | "DELIVERY";
+  momentoPagamento: "NA_RETIRADA" | "NA_ENTREGA";
+  enderecoEntrega?: string;
+  observacoesCliente?: string;
+  itens: ItemPedidoInput[];
+}) {
+  return criarPedido({
+    ...input,
+    canal: "PUBLICO",
+    desconto: 0,
+    pagamentos: [],
+    valorAPrazo: 0,
+    papelUsuario: "FUNCIONARIO",
+  });
 }
 
 export async function listarPedidos(filtros: { status?: string; clienteId?: string }) {
@@ -289,6 +351,21 @@ export async function atualizarPreparoItem(
     throw new ErroPedido("Informe o peso real para confirmar o corte.");
   }
 
+  if (input.statusPreparo === "CORTADO" && item.produto.tipoVenda === "PESO") {
+    const configuracao = await obterConfiguracaoPesagem();
+    if (
+      excedeToleranciaPesagem(
+        Number(item.pesoOuQtd),
+        input.pesoReal!,
+        configuracao.toleranciaPesagemPercentual
+      )
+    ) {
+      throw new ErroPedido(
+        `O peso real ultrapassa a tolerância configurada de ${configuracao.toleranciaPesagemPercentual}%.`
+      );
+    }
+  }
+
   const pesoReal =
     input.statusPreparo === "CORTADO"
       ? input.pesoReal!
@@ -327,6 +404,10 @@ export async function atualizarPreparoItem(
     const pagamentos = await tx.pagamento.findMany({ where: { pedidoId } });
     const totalPago = pagamentos.reduce((total, pagamento) => total + Number(pagamento.valor), 0);
     const statusPagamento = totalPago >= totalPedido ? "PAGO" : totalPago > 0 ? "PARCIALMENTE_PAGO" : "PENDENTE";
+    const novoStatusOperacao: StatusOperacaoPedido =
+      item.pedido.statusOperacao === "RECEBIDO" && input.statusPreparo !== "PENDENTE"
+        ? "EM_PREPARO"
+        : item.pedido.statusOperacao;
 
     await tx.pedido.update({
       where: { id: pedidoId },
@@ -334,11 +415,13 @@ export async function atualizarPreparoItem(
         subtotal: subtotalPedido,
         total: totalPedido,
         statusPagamento,
-        ...(item.pedido.statusOperacao === "RECEBIDO" && input.statusPreparo !== "PENDENTE"
-          ? { statusOperacao: "EM_PREPARO" }
-          : {}),
+        statusOperacao: novoStatusOperacao,
       },
     });
+
+    if (novoStatusOperacao !== item.pedido.statusOperacao) {
+      await registrarHistoricoStatus(tx, pedidoId, novoStatusOperacao, "Primeiro corte iniciado");
+    }
 
     if (item.pedido.contaReceber) {
       const saldo = Math.max(Number((totalPedido - totalPago).toFixed(2)), 0);
@@ -383,21 +466,29 @@ export async function atualizarStatusOperacaoPedido(
     }
   }
 
-  const atualizado = await prisma.pedido.update({
-    where: { id: pedidoId },
-    data: { statusOperacao },
-    include: {
-      cliente: true,
-      usuario: { select: { nome: true } },
+  const atualizado = await prisma.$transaction(async (tx) => {
+    const pedidoAtualizado = await tx.pedido.update({
+      where: { id: pedidoId },
+      data: { statusOperacao },
+      include: {
+        cliente: true,
+        usuario: { select: { nome: true } },
         itens: {
           include: {
             produto: true,
             preparadoPor: { select: { id: true, nome: true } },
             cortadoPor: { select: { id: true, nome: true } },
+          },
         },
+        contaReceber: true,
       },
-      contaReceber: true,
-    },
+    });
+
+    if (pedido.statusOperacao !== statusOperacao) {
+      await registrarHistoricoStatus(tx, pedidoId, statusOperacao, "Status operacional atualizado");
+    }
+
+    return pedidoAtualizado;
   });
 
   await registrarLog({
@@ -427,8 +518,47 @@ export async function obterPedido(id: string) {
       pagamentos: { include: { usuario: { select: { nome: true } } } },
       contaReceber: true,
       notaFiscal: true,
+      statusHistorico: { orderBy: { criadoEm: "asc" } },
     },
   });
+}
+
+export async function obterAcompanhamentoPublico(token: string) {
+  const pedido = await prisma.pedido.findUnique({
+    where: { tokenAcompanhamento: token },
+    include: {
+      itens: { include: { produto: true } },
+      statusHistorico: { orderBy: { criadoEm: "asc" } },
+    },
+  });
+
+  if (!pedido) return null;
+
+  return {
+    numero: pedido.numero,
+    tokenAcompanhamento: pedido.tokenAcompanhamento,
+    canal: pedido.canal,
+    tipoEntrega: pedido.tipoEntrega,
+    momentoPagamento: pedido.momentoPagamento,
+    nomeCliente: pedido.nomeCliente,
+    criadoEm: pedido.criadoEm,
+    subtotal: pedido.subtotal,
+    taxaEntrega: pedido.taxaEntrega,
+    total: pedido.total,
+    statusPagamento: pedido.statusPagamento,
+    statusOperacao: pedido.statusOperacao,
+    enderecoEntrega: pedido.enderecoEntrega,
+    itens: pedido.itens.map((item) => ({
+      id: item.id,
+      nome: item.produto.nome,
+      pesoOuQtd: item.pesoOuQtd,
+      unidadePedido: item.unidadePedido,
+      pesoReal: item.pesoReal,
+      subtotal: item.subtotal,
+      statusPreparo: item.statusPreparo,
+    })),
+    statusHistorico: pedido.statusHistorico,
+  };
 }
 
 export type FormaPagamentoFinal =
@@ -437,7 +567,9 @@ export type FormaPagamentoFinal =
   | "CARTAO_DEBITO"
   | "CARTAO_CREDITO"
   | "TRANSFERENCIA"
-  | "A_PRAZO";
+  | "A_PRAZO"
+  | "NA_RETIRADA"
+  | "NA_ENTREGA";
 
 /**
  * Fecha a conferência dos cortes e registra a condição de pagamento somente
@@ -470,6 +602,17 @@ export async function finalizarConferenciaPedido(
     if (!input.vencimento) throw new ErroPedido("Informe a data de vencimento do pagamento posterior.");
   }
 
+  const pagamentoNaEntrega = input.formaPagamento === "NA_RETIRADA" || input.formaPagamento === "NA_ENTREGA";
+  if (pagamentoNaEntrega) {
+    if (pedido.canal !== "PUBLICO") {
+      throw new ErroPedido("Pagamento na retirada ou entrega só pode ser usado em pedidos públicos.");
+    }
+    const formaEsperada = pedido.tipoEntrega === "DELIVERY" ? "NA_ENTREGA" : "NA_RETIRADA";
+    if (input.formaPagamento !== formaEsperada) {
+      throw new ErroPedido(`Este pedido deve ser pago ${pedido.tipoEntrega === "DELIVERY" ? "na entrega" : "na retirada"}.`);
+    }
+  }
+
   await prisma.$transaction(async (tx) => {
     if (input.formaPagamento === "A_PRAZO") {
       if (pedido.contaReceber) {
@@ -494,11 +637,11 @@ export async function finalizarConferenciaPedido(
           },
         });
       }
-    } else if (saldo > TOLERANCIA_CENTAVOS) {
+    } else if (!pagamentoNaEntrega && saldo > TOLERANCIA_CENTAVOS) {
       await tx.pagamento.create({
         data: {
           pedidoId,
-          forma: input.formaPagamento,
+          forma: input.formaPagamento as Exclude<FormaPagamentoFinal, "A_PRAZO" | "NA_RETIRADA" | "NA_ENTREGA">,
           valor: saldo,
           usuarioId,
         },
@@ -516,10 +659,14 @@ export async function finalizarConferenciaPedido(
       where: { id: pedidoId },
       data: {
         statusOperacao: "EXPEDICAO",
-        statusPagamento: input.formaPagamento === "A_PRAZO" ? "PENDENTE" : "PAGO",
+        statusPagamento: input.formaPagamento === "A_PRAZO" || pagamentoNaEntrega ? "PENDENTE" : "PAGO",
         vencimento: input.formaPagamento === "A_PRAZO" ? input.vencimento : null,
       },
     });
+
+    if (pedido.statusOperacao !== "EXPEDICAO") {
+      await registrarHistoricoStatus(tx, pedidoId, "EXPEDICAO", "Conferência finalizada");
+    }
   });
 
   await registrarLog({
@@ -563,7 +710,7 @@ export async function registrarPagamento(
       data: { pedidoId, forma: input.forma, valor: input.valor, usuarioId },
     });
 
-    let novoStatusPedido: "PARCIALMENTE_PAGO" | "PAGO" = "PARCIALMENTE_PAGO";
+    let novoStatusPedido: "PENDENTE" | "PARCIALMENTE_PAGO" | "PAGO" = "PARCIALMENTE_PAGO";
 
     if (pedido.contaReceber) {
       const novoSaldo = Number((Number(pedido.contaReceber.saldo) - input.valor).toFixed(2));
@@ -583,6 +730,13 @@ export async function registrarPagamento(
       });
 
       novoStatusPedido = quitado ? "PAGO" : "PARCIALMENTE_PAGO";
+    } else {
+      const totalPago = await tx.pagamento.aggregate({
+        where: { pedidoId },
+        _sum: { valor: true },
+      });
+      const totalPagoAtualizado = Number(totalPago._sum.valor || 0);
+      novoStatusPedido = totalPagoAtualizado >= Number(pedido.total) - TOLERANCIA_CENTAVOS ? "PAGO" : "PARCIALMENTE_PAGO";
     }
 
     const pedidoAtualizado = await tx.pedido.update({

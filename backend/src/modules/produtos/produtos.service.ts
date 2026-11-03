@@ -20,6 +20,10 @@ export async function listarProdutos(somenteAtivos = true) {
   });
 }
 
+export async function listarCatalogoPublico() {
+  return listarProdutos(true);
+}
+
 export async function obterProduto(id: string) {
   return prisma.produto.findUnique({ where: { id }, include: { categoria: true } });
 }

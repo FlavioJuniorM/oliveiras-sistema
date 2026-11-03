@@ -10,6 +10,8 @@ import { dashboardRouter } from "./modules/dashboard/dashboard.routes";
 import { contasPagarRouter } from "./modules/contas-pagar/contasPagar.routes";
 import { relatoriosRouter } from "./modules/relatorios/relatorios.routes";
 import { impressaoRouter } from "./modules/impressao/impressao.routes";
+import { publicoRouter } from "./modules/publico/publico.routes";
+import { configuracoesRouter } from "./modules/configuracoes/configuracoes.routes";
 
 export const app = express();
 
@@ -31,6 +33,10 @@ app.get("/", (_req, res) => {
 });
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
+
+// Rotas públicas do catálogo, checkout e acompanhamento por token.
+app.use("/publico", publicoRouter);
+app.use("/configuracoes", configuracoesRouter);
 
 app.use("/auth", authRouter);
 app.use("/usuarios", usuariosRouter);

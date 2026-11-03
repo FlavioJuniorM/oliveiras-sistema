@@ -109,6 +109,8 @@ const finalizacaoConferenciaSchema = z.object({
     "CARTAO_CREDITO",
     "TRANSFERENCIA",
     "A_PRAZO",
+    "NA_RETIRADA",
+    "NA_ENTREGA",
   ]),
   vencimento: z.coerce.date().optional(),
 });

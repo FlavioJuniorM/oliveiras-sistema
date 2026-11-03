@@ -13,6 +13,7 @@ const TITULOS: Record<string, string> = {
   "/financeiro/contas-a-pagar": "Contas a Pagar",
   "/relatorios": "Relatórios",
   "/usuarios": "Usuários",
+  "/configuracoes": "Configurações",
 };
 
 export function AppLayout() {

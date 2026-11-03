@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
+    "test": "tsx --test \"test/**/*.test.ts\"",
     "vercel-build": "prisma generate && prisma migrate deploy && tsx prisma/seed.ts && tsx scripts/importar-produtos-carnes.ts",
     "start": "node dist/server.js",
     "db:start": "powershell -ExecutionPolicy Bypass -File scripts/start-postgres.ps1",
@@ -17,7 +18,7 @@
     "prisma:deploy": "prisma migrate deploy"
   },
   "engines": {
-    "node": "24.x"
+    "node": ">=20.0.0 <25.0.0"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",

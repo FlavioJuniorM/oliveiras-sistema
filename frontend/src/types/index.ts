@@ -50,6 +50,9 @@ export type StatusOperacaoPedido =
 
 export type StatusPreparoItem = "PENDENTE" | "EM_CORTE" | "CORTADO";
 export type UnidadePedido = "kg" | "g" | "peca" | "unidade" | "outra";
+export type CanalPedido = "INTERNO" | "PUBLICO";
+export type TipoEntrega = "RETIRADA" | "DELIVERY";
+export type MomentoPagamentoPedido = "NA_RETIRADA" | "NA_ENTREGA";
 
 export interface PedidoItem {
   id: string;
@@ -71,6 +74,16 @@ export interface Pedido {
   clienteId?: string | null;
   cliente?: Cliente | null;
   usuario?: { nome: string };
+  canal?: CanalPedido;
+  tipoEntrega?: TipoEntrega;
+  momentoPagamento?: MomentoPagamentoPedido | null;
+  taxaEntrega?: string | number;
+  nomeCliente?: string | null;
+  telefoneCliente?: string | null;
+  emailCliente?: string | null;
+  enderecoEntrega?: string | null;
+  observacoesCliente?: string | null;
+  tokenAcompanhamento?: string | null;
   subtotal: string | number;
   desconto: string | number;
   total: string | number;
@@ -81,6 +94,7 @@ export interface Pedido {
   itens: PedidoItem[];
   pagamentos?: { id: string; forma: string; valor: string | number; criadoEm: string }[];
   contaReceber?: { valorOriginal: string | number; saldo: string | number; vencimento: string; status: string } | null;
+  statusHistorico?: { id: string; status: StatusOperacaoPedido; criadoEm: string; observacao?: string | null }[];
 }
 
 export interface HistoricoCliente {
