@@ -148,15 +148,24 @@ function mensagemMotoboy(pedido: Pedido) {
   return linhas.filter((linha, indice, todas) => linha !== "" || (todas[indice - 1] !== "" && indice > 0)).join("\n");
 }
 
-function linkWhatsAppMotoboy(pedido: Pedido) {
-  return `https://wa.me/?text=${encodeURIComponent(mensagemMotoboy(pedido))}`;
+/** Link do WhatsApp com a mensagem pronta; com telefone, abre direto na conversa. */
+function linkWhatsAppMotoboy(pedido: Pedido, telefone?: string) {
+  const digitos = (telefone || "").replace(/\D/g, "");
+  const numero = digitos.length === 10 || digitos.length === 11 ? `55${digitos}` : digitos;
+  return `https://wa.me/${numero}?text=${encodeURIComponent(mensagemMotoboy(pedido))}`;
 }
+
+interface MotoboyCadastrado { id: string; nome: string; telefone: string }
 
 
 /** Mensagem pronta para o motoboy: abrir no WhatsApp ou copiar. */
 function ModalMotoboy({ pedido, onFechar }: { pedido: Pedido; onFechar: () => void }) {
   const [copiado, setCopiado] = useState(false);
   const [erro, setErro] = useState("");
+  const [motoboys, setMotoboys] = useState<MotoboyCadastrado[]>([]);
+  useEffect(() => {
+    api<MotoboyCadastrado[]>("/motoboys").then(setMotoboys).catch(() => setMotoboys([]));
+  }, []);
   async function copiar() {
     try {
       await navigator.clipboard.writeText(mensagemMotoboy(pedido));
@@ -167,11 +176,12 @@ function ModalMotoboy({ pedido, onFechar }: { pedido: Pedido; onFechar: () => vo
     }
   }
   return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4" onClick={onFechar}><div className="w-full max-w-lg rounded-card bg-surface p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-    <p className="font-display text-2xl uppercase text-ink">Rota para o motoboy</p><p className="mt-1 text-sm text-muted">Clique em “Abrir no WhatsApp”, escolha o contato do motoboy e envie.</p>
+    <p className="font-display text-2xl uppercase text-ink">Rota para o motoboy</p><p className="mt-1 text-sm text-muted">Toque no nome do motoboy para abrir a conversa dele no WhatsApp com a mensagem pronta.</p>
     <pre className="mt-4 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-background p-4 font-sans text-sm text-ink">{mensagemMotoboy(pedido).replace(/\*/g, "")}</pre>
     {!enderecoDoPedido(pedido) && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">Esta comanda está sem endereço.</p>}
     {erro && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
-    <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end"><Button variante="secundaria" onClick={onFechar}>Fechar</Button><Button variante="secundaria" onClick={copiar}>{copiado ? "Copiado ✓" : "Copiar mensagem"}</Button><a href={linkWhatsAppMotoboy(pedido)} target="_blank" rel="noreferrer"><Button className="w-full bg-[#1f9d55] hover:bg-[#187a42]">Abrir no WhatsApp</Button></a></div>
+    <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end"><Button variante="secundaria" onClick={onFechar}>Fechar</Button><Button variante="secundaria" onClick={copiar}>{copiado ? "Copiado ✓" : "Copiar mensagem"}</Button><a href={linkWhatsAppMotoboy(pedido)} target="_blank" rel="noreferrer"><Button variante="secundaria" className="w-full">{motoboys.length ? "Outro contato" : "Abrir no WhatsApp"}</Button></a></div>
+    {motoboys.length > 0 && <div className="mt-4 border-t border-border pt-4"><p className="mb-2 text-sm font-semibold text-ink">Enviar direto para:</p><div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{motoboys.map((motoboy) => <a key={motoboy.id} href={linkWhatsAppMotoboy(pedido, motoboy.telefone)} target="_blank" rel="noreferrer"><Button className="w-full !bg-[#1f9d55] hover:!bg-[#187a42]">🛵 {motoboy.nome}</Button></a>)}</div></div>}
   </div></div>;
 }
 

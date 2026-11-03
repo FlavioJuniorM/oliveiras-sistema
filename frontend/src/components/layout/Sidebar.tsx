@@ -27,6 +27,7 @@ const GRUPOS: { titulo: string; itens: ItemMenu[] }[] = [
   {
     titulo: "Financeiro",
     itens: [
+      { rotulo: "Fechamento de Caixa", para: "/financeiro/caixa", somenteAdmin: true },
       { rotulo: "Contas a Receber", para: "/financeiro/contas-a-receber", somenteAdmin: true },
       { rotulo: "Contas a Pagar", para: "/financeiro/contas-a-pagar", somenteAdmin: true },
     ],

@@ -1,4 +1,4 @@
-import { hojeCalendario } from "../../shared/datas";
+import { hojeCalendario, periodoNaLoja } from "../../shared/datas";
 import { prisma } from "../../config/database";
 
 interface PeriodoInput {
@@ -160,5 +160,69 @@ export async function relatorioFinanceiro({ inicio, fim }: PeriodoInput) {
     // Fluxo de caixa simplificado do período: entradas (pagamentos recebidos) menos
     // saídas (contas a pagar já pagas dentro do período)
     fluxoCaixaPeriodo: Number((totalRecebido - totalContasPagarPagas).toFixed(2)),
+  };
+}
+
+
+const FORMAS_CAIXA = ["DINHEIRO", "PIX", "CARTAO_DEBITO", "CARTAO_CREDITO", "TRANSFERENCIA", "BOLETO", "OUTROS"] as const;
+
+/**
+ * Fechamento de caixa de um dia (horário de Brasília): tudo o que foi RECEBIDO,
+ * separado por forma de pagamento — para bater com a maquininha e a gaveta.
+ */
+export async function fechamentoDeCaixa(data: string) {
+  const { inicio, fim } = periodoNaLoja(data, data);
+
+  const [pagamentos, vendasAPrazo, comandasCanceladas] = await Promise.all([
+    prisma.pagamento.findMany({
+      where: { criadoEm: { gte: inicio, lte: fim }, pedido: { statusPagamento: { not: "CANCELADO" } } },
+      include: {
+        pedido: { select: { numero: true, nomeCliente: true, cliente: { select: { nome: true, nomeFantasia: true } } } },
+        usuario: { select: { nome: true } },
+      },
+      orderBy: { criadoEm: "asc" },
+    }),
+    // Vendas fiado (a prazo) das comandas anotadas no dia: não entram no caixa, mas o dono quer ver
+    prisma.contaReceber.findMany({
+      where: { status: { not: "CANCELADO" }, pedido: { criadoEm: { gte: inicio, lte: fim } } },
+      include: { pedido: { select: { numero: true } }, cliente: { select: { nome: true } } },
+    }),
+    prisma.pedido.count({ where: { criadoEm: { gte: inicio, lte: fim }, statusPagamento: "CANCELADO" } }),
+  ]);
+
+  const porForma = FORMAS_CAIXA.map((forma) => {
+    const daForma = pagamentos.filter((pagamento) => pagamento.forma === forma);
+    return {
+      forma,
+      quantidade: daForma.length,
+      total: Number(daForma.reduce((soma, pagamento) => soma + Number(pagamento.valor), 0).toFixed(2)),
+    };
+  }).filter((linha) => linha.quantidade > 0 || ["DINHEIRO", "PIX", "CARTAO_DEBITO", "CARTAO_CREDITO"].includes(linha.forma));
+
+  return {
+    data,
+    totalRecebido: Number(pagamentos.reduce((soma, pagamento) => soma + Number(pagamento.valor), 0).toFixed(2)),
+    totalCartoes: Number(
+      pagamentos
+        .filter((pagamento) => pagamento.forma === "CARTAO_DEBITO" || pagamento.forma === "CARTAO_CREDITO")
+        .reduce((soma, pagamento) => soma + Number(pagamento.valor), 0)
+        .toFixed(2)
+    ),
+    porForma,
+    recebimentos: pagamentos.map((pagamento) => ({
+      id: pagamento.id,
+      criadoEm: pagamento.criadoEm,
+      forma: pagamento.forma,
+      valor: Number(pagamento.valor),
+      pedido: pagamento.pedido.numero,
+      cliente: pagamento.pedido.cliente?.nomeFantasia || pagamento.pedido.cliente?.nome || pagamento.pedido.nomeCliente || "Consumidor final",
+      recebidoPor: pagamento.usuario.nome,
+    })),
+    vendasAPrazo: {
+      quantidade: vendasAPrazo.length,
+      total: Number(vendasAPrazo.reduce((soma, conta) => soma + Number(conta.valorOriginal), 0).toFixed(2)),
+      itens: vendasAPrazo.map((conta) => ({ pedido: conta.pedido.numero, cliente: conta.cliente.nome, valor: Number(conta.valorOriginal), vencimento: conta.vencimento })),
+    },
+    comandasCanceladas,
   };
 }

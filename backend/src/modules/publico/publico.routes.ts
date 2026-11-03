@@ -1,3 +1,4 @@
+import { contarTentativas, ipDaRequisicao, normalizarTelefone, registrarTentativa } from "../../shared/limites";
 import { Router } from "express";
 import { z } from "zod";
 import { listarCatalogoPublico } from "../produtos/produtos.service";
@@ -57,8 +58,26 @@ publicoRouter.post("/pedidos", async (req, res) => {
     return res.status(400).json({ erro: validacao.error.issues[0].message });
   }
 
+  // Proteção contra spam: no máximo 3 pedidos por telefone a cada 30 min
+  // e 10 pedidos por conexão (IP) a cada hora. Pedido real nunca chega nisso.
+  const ip = ipDaRequisicao(req);
+  const telefone = normalizarTelefone(validacao.data.telefoneCliente);
+  const [porTelefone, porIp] = await Promise.all([
+    contarTentativas("PEDIDO_PUBLICO_TELEFONE", telefone, 30),
+    contarTentativas("PEDIDO_PUBLICO_IP", ip, 60),
+  ]);
+  if (porTelefone >= 3 || porIp >= 10) {
+    return res.status(429).json({
+      erro: "Recebemos vários pedidos seus agora há pouco. Se precisar alterar algo, fale com a loja pelo WhatsApp.",
+    });
+  }
+
   try {
     const pedido = await criarPedidoPublico(validacao.data);
+    await Promise.all([
+      registrarTentativa("PEDIDO_PUBLICO_TELEFONE", telefone),
+      registrarTentativa("PEDIDO_PUBLICO_IP", ip),
+    ]);
     return res.status(201).json({
       numero: pedido.numero,
       tokenAcompanhamento: pedido.tokenAcompanhamento,

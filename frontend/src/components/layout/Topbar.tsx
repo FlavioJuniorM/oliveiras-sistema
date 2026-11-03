@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 
 export function Topbar({ titulo }: { titulo: string }) {
@@ -8,10 +9,11 @@ export function Topbar({ titulo }: { titulo: string }) {
       <h1 className="font-display text-2xl tracking-wide text-ink">{titulo}</h1>
 
       <div className="flex items-center gap-4">
-        <div className="text-right leading-tight">
+        <div className="hidden text-right leading-tight sm:block">
           <p className="text-sm font-semibold text-ink">{usuario?.nome}</p>
           <p className="text-xs text-muted">
-            {usuario?.papel === "ADMINISTRATIVO" ? "Administrativo" : "Funcionário"}
+            {usuario?.papel === "ADMINISTRATIVO" ? "Administrativo" : "Funcionário"} ·{" "}
+            <Link to="/minha-senha" className="font-semibold text-primary hover:underline">Trocar senha</Link>
           </p>
         </div>
         <button

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { autenticar } from "../../middlewares/autenticacao";
 import { somentePapel } from "../../middlewares/permissoes";
 import { criarUsuario, inativarUsuario, listarUsuarios } from "./usuarios.service";
+import { ErroAutenticacao, redefinirSenhaUsuario, validarNovaSenha } from "../auth/auth.service";
 
 export const usuariosRouter = Router();
 
@@ -28,6 +29,8 @@ usuariosRouter.post("/", async (req, res) => {
   if (!validacao.success) {
     return res.status(400).json({ erro: validacao.error.issues[0].message });
   }
+  const problemaSenha = validarNovaSenha(validacao.data.senha, validacao.data.login);
+  if (problemaSenha) return res.status(400).json({ erro: problemaSenha });
 
   try {
     const usuario = await criarUsuario({
@@ -47,4 +50,18 @@ usuariosRouter.post("/", async (req, res) => {
 usuariosRouter.patch("/:id/inativar", async (req, res) => {
   const usuario = await inativarUsuario(req.params.id, req.usuario!.id);
   return res.json(usuario);
+});
+
+// Administrador redefine a senha de um usuário (ex.: funcionário esqueceu)
+usuariosRouter.patch("/:id/senha", async (req, res) => {
+  const validacao = z.object({ novaSenha: z.string().min(1, "Informe a nova senha.") }).safeParse(req.body);
+  if (!validacao.success) return res.status(400).json({ erro: validacao.error.issues[0].message });
+  try {
+    await redefinirSenhaUsuario(req.params.id, validacao.data.novaSenha, req.usuario!.id);
+    return res.json({ ok: true });
+  } catch (erro) {
+    if (erro instanceof ErroAutenticacao) return res.status(400).json({ erro: erro.message });
+    console.error(erro);
+    return res.status(500).json({ erro: "Erro interno ao redefinir a senha." });
+  }
 });

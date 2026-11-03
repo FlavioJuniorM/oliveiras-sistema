@@ -8,6 +8,7 @@ import {
   relatorioFinanceiro,
   relatorioProdutos,
   relatorioVendasPorPeriodo,
+  fechamentoDeCaixa,
 } from "./relatorios.service";
 
 export const relatoriosRouter = Router();
@@ -59,4 +60,11 @@ relatoriosRouter.get("/financeiro", async (req, res) => {
   const periodo = validarPeriodo(req, res);
   if (!periodo) return;
   return res.json(await relatorioFinanceiro(periodo));
+});
+
+// GET /relatorios/caixa?data=2026-11-03 — fechamento de caixa do dia
+relatoriosRouter.get("/caixa", async (req, res) => {
+  const validacao = dataDia.safeParse(req.query.data);
+  if (!validacao.success) return res.status(400).json({ erro: "Informe a data no formato AAAA-MM-DD." });
+  return res.json(await fechamentoDeCaixa(validacao.data));
 });

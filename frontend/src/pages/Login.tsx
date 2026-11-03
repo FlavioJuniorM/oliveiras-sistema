@@ -18,8 +18,8 @@ export function Login() {
     setErro("");
     setEnviando(true);
     try {
-      await entrar(login, senha);
-      navegar("/");
+      const { trocarSenha } = await entrar(login, senha);
+      navegar(trocarSenha ? "/minha-senha" : "/");
     } catch (e) {
       setErro(e instanceof ErroApi ? e.message : "Não foi possível entrar. Tente novamente.");
     } finally {

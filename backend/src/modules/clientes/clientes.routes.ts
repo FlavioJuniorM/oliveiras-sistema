@@ -1,3 +1,4 @@
+import { somentePapel } from "../../middlewares/permissoes";
 import { Router } from "express";
 import { z } from "zod";
 import { autenticar } from "../../middlewares/autenticacao";
@@ -86,7 +87,7 @@ clientesRouter.put("/:id", async (req, res) => {
   return res.json(cliente);
 });
 
-clientesRouter.patch("/:id/inativar", async (req, res) => {
+clientesRouter.patch("/:id/inativar", somentePapel("ADMINISTRATIVO"), async (req, res) => {
   // Inativar cliente é uma ação administrativa — funcionário só cadastra/consulta
   if (req.usuario!.papel !== "ADMINISTRATIVO") {
     return res.status(403).json({ erro: "Apenas o administrativo pode inativar clientes." });

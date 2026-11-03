@@ -51,6 +51,7 @@ export function Usuarios() {
                   {u.papel === "ADMINISTRATIVO" ? "Administrativo" : "Funcionário"}
                 </span>
                 <StatusBadge status={u.status} />
+                <RedefinirSenha usuarioId={u.id} nome={u.nome} />
               </div>
             </div>
           ))}
@@ -119,4 +120,32 @@ function FormularioUsuario({ onCancelar, onCriado }: { onCancelar: () => void; o
       </form>
     </Card>
   );
+}
+
+
+/** Administrador define uma nova senha para o usuário (ex.: funcionário esqueceu). */
+function RedefinirSenha({ usuarioId, nome }: { usuarioId: string; nome: string }) {
+  const [aberto, setAberto] = useState(false);
+  const [senha, setSenha] = useState("");
+  const [mensagem, setMensagem] = useState("");
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  async function salvar() {
+    setErro("");
+    setSalvando(true);
+    try {
+      await api(`/usuarios/${usuarioId}/senha`, { method: "PATCH", body: { novaSenha: senha } });
+      setMensagem(`Senha de ${nome} redefinida.`);
+      setSenha("");
+      setAberto(false);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível redefinir a senha.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  if (!aberto) return <>{mensagem && <span className="text-xs font-semibold text-success">{mensagem}</span>}<Button variante="fantasma" onClick={() => { setAberto(true); setMensagem(""); }}>Redefinir senha</Button></>;
+  return <div className="flex flex-wrap items-center gap-2"><input type="password" placeholder="Nova senha (mín. 8)" value={senha} onChange={(e) => setSenha(e.target.value)} className="h-10 rounded-lg border border-border px-3 text-sm" aria-label={`Nova senha para ${nome}`} autoFocus /><Button disabled={salvando || senha.length < 8} onClick={salvar}>{salvando ? "..." : "Salvar"}</Button><Button variante="secundaria" onClick={() => { setAberto(false); setErro(""); }}>Cancelar</Button>{erro && <span className="w-full text-xs text-danger">{erro}</span>}</div>;
 }

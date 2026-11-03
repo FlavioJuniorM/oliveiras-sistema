@@ -14,6 +14,8 @@ import { Relatorios } from "./pages/relatorios/Relatorios";
 import { Usuarios } from "./pages/usuarios/Usuarios";
 import { AcompanhamentoPedido, CatalogoPublico, CheckoutPublico } from "./pages/publico/PedidoPublico";
 import { Configuracoes } from "./pages/configuracoes/Configuracoes";
+import { MinhaSenha } from "./pages/MinhaSenha";
+import { FechamentoCaixa } from "./pages/financeiro/FechamentoCaixa";
 
 export default function App() {
   return (
@@ -42,6 +44,15 @@ export default function App() {
           <Route path="/pedidos/novo" element={<NovoPedido />} />
           <Route path="/pedidos" element={<PedidosDoDia />} />
           <Route path="/clientes" element={<Clientes />} />
+          <Route path="/minha-senha" element={<MinhaSenha />} />
+          <Route
+            path="/financeiro/caixa"
+            element={
+              <RotaProtegida somenteAdmin>
+                <FechamentoCaixa />
+              </RotaProtegida>
+            }
+          />
           <Route path="/produtos" element={<Produtos />} />
           <Route
             path="/financeiro/contas-a-receber"

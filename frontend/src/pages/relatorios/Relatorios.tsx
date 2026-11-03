@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import { dataLocalISO, formatarMoeda } from "../../lib/formatadores";
 import { Card, CardTitulo } from "../../components/ui/Card";
@@ -37,6 +37,12 @@ export function Relatorios() {
     setFinanceiro(f);
     setCarregando(false);
   }
+
+  // Abre já com o mês atual (até hoje)
+  useEffect(() => {
+    gerar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="flex flex-col gap-4">

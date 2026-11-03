@@ -317,3 +317,26 @@ model Log {
 
   @@map("logs")
 }
+
+// Registro de tentativas para limitar abuso (login errado, pedidos pelo site).
+// Fica no banco porque o servidor na Vercel não guarda memória entre requisições.
+model TentativaAcesso {
+  id       String   @id @default(uuid())
+  tipo     String // LOGIN_FALHA_USUARIO | LOGIN_FALHA_IP | PEDIDO_PUBLICO_IP | PEDIDO_PUBLICO_TELEFONE
+  chave    String
+  criadoEm DateTime @default(now()) @map("criado_em")
+
+  @@index([tipo, chave, criadoEm])
+  @@map("tentativas_acesso")
+}
+
+// Motoboys de confiança: o WhatsApp da rota abre direto na conversa deles
+model Motoboy {
+  id       String         @id @default(uuid())
+  nome     String
+  telefone String
+  status   StatusRegistro @default(ATIVO)
+  criadoEm DateTime       @default(now()) @map("criado_em")
+
+  @@map("motoboys")
+}
