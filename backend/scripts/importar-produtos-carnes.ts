@@ -90,16 +90,12 @@ async function main() {
 
   for (const item of produtos) {
     const unidade = item.unidade ?? "kg";
+    // Este script roda em TODO deploy (vercel-build). Por isso ele só CADASTRA
+    // produtos que ainda não existem: nunca altera preço, nome ou status de um
+    // produto já cadastrado — esses dados são mantidos pela tela de Produtos.
     await prisma.produto.upsert({
       where: { codigo: item.codigo },
-      update: {
-        nome: item.nome,
-        categoriaId: categorias.get(item.grupo),
-        tipoVenda: unidade === "un" ? "UNIDADE" : "PESO",
-        unidadeMedida: unidade,
-        preco: item.preco,
-        status: "ATIVO",
-      },
+      update: {},
       create: {
         codigo: item.codigo,
         nome: item.nome,
@@ -112,13 +108,7 @@ async function main() {
     });
   }
 
-  // Mantém o histórico dos três cadastros antigos, mas evita duplicidade no catálogo ativo.
-  await prisma.produto.updateMany({
-    where: { codigo: { in: ["016", "054", "055"] } },
-    data: { status: "INATIVO" },
-  });
-
-  console.log(`Importação concluída: ${produtos.length} produtos de carnes bovinas, aves e suínas.`);
+  console.log(`Importação concluída: ${produtos.length} produtos verificados (existentes não foram alterados).`);
   console.log("Nenhum produto de bebida, carvão, tempero, sal, pão, queijo ou item diverso foi incluído.");
 }
 
