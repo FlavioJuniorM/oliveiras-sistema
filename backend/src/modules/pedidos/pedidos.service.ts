@@ -242,6 +242,7 @@ export async function listarPedidos(filtros: { status?: string; clienteId?: stri
           cortadoPor: { select: { id: true, nome: true } },
         },
       },
+      pagamentos: true,
       contaReceber: true,
     },
     orderBy: { criadoEm: "desc" },
@@ -254,6 +255,7 @@ const STATUS_OPERACAO = [
   "EM_PREPARO",
   "EXPEDICAO",
   "PRONTO",
+  "AGUARDANDO_RETIRADA",
   "EM_ENTREGA",
   "ENTREGUE",
 ] as const;
@@ -365,12 +367,26 @@ export async function atualizarPreparoItem(
   return obterPedido(pedidoId);
 }
 
+const FORMAS_RECEBIMENTO = ["DINHEIRO", "PIX", "CARTAO_DEBITO", "CARTAO_CREDITO"] as const;
+export type FormaRecebimento = (typeof FORMAS_RECEBIMENTO)[number];
+
+/**
+ * Saída da comanda depois de fechada:
+ *   PRONTO → AGUARDANDO_RETIRADA (cliente vem buscar) → ENTREGUE
+ *   PRONTO → EM_ENTREGA (motoboy em rota)             → ENTREGUE
+ * Ao concluir, se ainda houver valor a receber (e não for venda a prazo),
+ * a forma recebida (dinheiro, pix, cartão) é obrigatória e vira pagamento.
+ */
 export async function atualizarStatusOperacaoPedido(
   pedidoId: string,
   statusOperacao: StatusOperacaoPedido,
-  usuarioId: string
+  usuarioId: string,
+  opcoes: { enderecoEntrega?: string; formaRecebida?: FormaRecebimento } = {}
 ) {
-  const pedido = await prisma.pedido.findUnique({ where: { id: pedidoId } });
+  const pedido = await prisma.pedido.findUnique({
+    where: { id: pedidoId },
+    include: { cliente: true, pagamentos: true, contaReceber: true },
+  });
 
   if (!pedido) {
     throw new ErroPedido("Pedido não encontrado.");
@@ -379,38 +395,66 @@ export async function atualizarStatusOperacaoPedido(
     throw new ErroPedido("Não é possível movimentar um pedido cancelado.");
   }
 
-  if (statusOperacao === "EXPEDICAO") {
-    const cortesPendentes = await prisma.pedidoItem.count({
-      where: { pedidoId, statusPreparo: { not: "CORTADO" } },
-    });
-    if (cortesPendentes > 0) {
-      throw new ErroPedido("Confirme todos os cortes antes de enviar para expedição.");
-    }
+  // EXPEDICAO é legado e equivale a PRONTO
+  const atual = pedido.statusOperacao === "EXPEDICAO" ? "PRONTO" : pedido.statusOperacao;
+  const transicoes: Record<string, StatusOperacaoPedido[]> = {
+    PRONTO: ["AGUARDANDO_RETIRADA", "EM_ENTREGA"],
+    AGUARDANDO_RETIRADA: ["ENTREGUE", "PRONTO"],
+    EM_ENTREGA: ["ENTREGUE", "PRONTO"],
+  };
+
+  if (atual === "RECEBIDO" || atual === "EM_PREPARO") {
+    throw new ErroPedido("Pese todos os itens e feche a comanda antes de dar saída.");
+  }
+  if (!transicoes[atual]?.includes(statusOperacao)) {
+    throw new ErroPedido("Movimentação não permitida para esta comanda.");
   }
 
-  const atualizado = await prisma.$transaction(async (tx) => {
-    const pedidoAtualizado = await tx.pedido.update({
-      where: { id: pedidoId },
-      data: { statusOperacao },
-      include: {
-        cliente: true,
-        usuario: { select: { nome: true } },
-        itens: {
-          include: {
-            produto: true,
-            preparadoPor: { select: { id: true, nome: true } },
-            cortadoPor: { select: { id: true, nome: true } },
-          },
-        },
-        contaReceber: true,
-      },
-    });
+  const total = Number(pedido.total);
+  const totalPago = pedido.pagamentos.reduce((soma, pagamento) => soma + Number(pagamento.valor), 0);
+  const saldo = Number(Math.max(total - totalPago, 0).toFixed(2));
+  const cobrarNoRecebimento = saldo > TOLERANCIA_CENTAVOS && !pedido.contaReceber;
 
-    if (pedido.statusOperacao !== statusOperacao) {
-      await registrarHistoricoStatus(tx, pedidoId, statusOperacao, "Status operacional atualizado");
+  const dados: Prisma.PedidoUpdateInput = { statusOperacao };
+
+  if (statusOperacao === "AGUARDANDO_RETIRADA") {
+    dados.tipoEntrega = "RETIRADA";
+    if (cobrarNoRecebimento) dados.momentoPagamento = "NA_RETIRADA";
+  }
+
+  if (statusOperacao === "EM_ENTREGA") {
+    const endereco = opcoes.enderecoEntrega?.trim() || pedido.enderecoEntrega || pedido.cliente?.endereco;
+    if (!endereco) {
+      throw new ErroPedido("Informe o endereço de entrega para mandar o pedido para a rota.");
+    }
+    dados.tipoEntrega = "DELIVERY";
+    dados.enderecoEntrega = endereco;
+    if (cobrarNoRecebimento) dados.momentoPagamento = "NA_ENTREGA";
+  }
+
+  if (statusOperacao === "ENTREGUE" && cobrarNoRecebimento) {
+    if (!opcoes.formaRecebida) {
+      throw new ErroPedido(`Informe como o cliente pagou os ${saldo.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}.`);
+    }
+    dados.statusPagamento = "PAGO";
+  }
+
+  await prisma.$transaction(async (tx) => {
+    if (statusOperacao === "ENTREGUE" && cobrarNoRecebimento) {
+      await tx.pagamento.create({
+        data: { pedidoId, forma: opcoes.formaRecebida!, valor: saldo, usuarioId },
+      });
     }
 
-    return pedidoAtualizado;
+    await tx.pedido.update({ where: { id: pedidoId }, data: dados });
+
+    const observacoes: Record<string, string> = {
+      AGUARDANDO_RETIRADA: "Aguardando o cliente retirar",
+      EM_ENTREGA: "Saiu para entrega com o motoboy",
+      ENTREGUE: atual === "EM_ENTREGA" ? "Entregue ao cliente" : "Retirado pelo cliente",
+      PRONTO: "Voltou para prontos",
+    };
+    await registrarHistoricoStatus(tx, pedidoId, statusOperacao, observacoes[statusOperacao]);
   });
 
   await registrarLog({
@@ -418,10 +462,12 @@ export async function atualizarStatusOperacaoPedido(
     acao: "ALTEROU_STATUS_PEDIDO",
     entidade: "pedido",
     entidadeId: pedidoId,
-    detalhes: `Alterou o pedido ${pedido.numero} para ${statusOperacao}`,
+    detalhes: `Alterou o pedido ${pedido.numero} para ${statusOperacao}${
+      statusOperacao === "ENTREGUE" && cobrarNoRecebimento ? ` — recebeu R$ ${saldo} em ${opcoes.formaRecebida}` : ""
+    }`,
   });
 
-  return atualizado;
+  return obterPedido(pedidoId);
 }
 
 export async function obterPedido(id: string) {
@@ -494,7 +540,8 @@ export type FormaPagamentoFinal =
   | "TRANSFERENCIA"
   | "A_PRAZO"
   | "NA_RETIRADA"
-  | "NA_ENTREGA";
+  | "NA_ENTREGA"
+  | "NO_RECEBIMENTO";
 
 /**
  * Fecha a conferência dos cortes e registra a condição de pagamento somente
@@ -527,11 +574,10 @@ export async function finalizarConferenciaPedido(
     if (!input.vencimento) throw new ErroPedido("Informe a data de vencimento do pagamento posterior.");
   }
 
-  const pagamentoNaEntrega = input.formaPagamento === "NA_RETIRADA" || input.formaPagamento === "NA_ENTREGA";
-  if (pagamentoNaEntrega) {
-    if (pedido.canal !== "PUBLICO") {
-      throw new ErroPedido("Pagamento na retirada ou entrega só pode ser usado em pedidos públicos.");
-    }
+  // "NO_RECEBIMENTO": cobrar quando o cliente retirar ou quando o motoboy entregar (maquininha)
+  const pagamentoNaEntrega =
+    input.formaPagamento === "NA_RETIRADA" || input.formaPagamento === "NA_ENTREGA" || input.formaPagamento === "NO_RECEBIMENTO";
+  if (pagamentoNaEntrega && input.formaPagamento !== "NO_RECEBIMENTO" && pedido.canal === "PUBLICO") {
     const formaEsperada = pedido.tipoEntrega === "DELIVERY" ? "NA_ENTREGA" : "NA_RETIRADA";
     if (input.formaPagamento !== formaEsperada) {
       throw new ErroPedido(`Este pedido deve ser pago ${pedido.tipoEntrega === "DELIVERY" ? "na entrega" : "na retirada"}.`);
@@ -566,7 +612,7 @@ export async function finalizarConferenciaPedido(
       await tx.pagamento.create({
         data: {
           pedidoId,
-          forma: input.formaPagamento as Exclude<FormaPagamentoFinal, "A_PRAZO" | "NA_RETIRADA" | "NA_ENTREGA">,
+          forma: input.formaPagamento as Exclude<FormaPagamentoFinal, "A_PRAZO" | "NA_RETIRADA" | "NA_ENTREGA" | "NO_RECEBIMENTO">,
           valor: saldo,
           usuarioId,
         },
@@ -583,14 +629,14 @@ export async function finalizarConferenciaPedido(
     await tx.pedido.update({
       where: { id: pedidoId },
       data: {
-        statusOperacao: "EXPEDICAO",
+        statusOperacao: "PRONTO",
         statusPagamento: input.formaPagamento === "A_PRAZO" || pagamentoNaEntrega ? "PENDENTE" : "PAGO",
         vencimento: input.formaPagamento === "A_PRAZO" ? input.vencimento : null,
       },
     });
 
-    if (pedido.statusOperacao !== "EXPEDICAO") {
-      await registrarHistoricoStatus(tx, pedidoId, "EXPEDICAO", "Conferência finalizada");
+    if (pedido.statusOperacao !== "PRONTO") {
+      await registrarHistoricoStatus(tx, pedidoId, "PRONTO", "Comanda fechada — pronta para retirada ou entrega");
     }
   });
 

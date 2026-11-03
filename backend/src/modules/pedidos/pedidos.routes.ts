@@ -92,9 +92,15 @@ const statusOperacaoSchema = z.enum([
   "EM_PREPARO",
   "EXPEDICAO",
   "PRONTO",
+  "AGUARDANDO_RETIRADA",
   "EM_ENTREGA",
   "ENTREGUE",
 ]);
+
+const saidaPedidoSchema = z.object({
+  enderecoEntrega: z.string().max(300).optional(),
+  formaRecebida: z.enum(["DINHEIRO", "PIX", "CARTAO_DEBITO", "CARTAO_CREDITO"]).optional(),
+});
 
 const preparoItemSchema = z.object({
   statusPreparo: z.enum(["PENDENTE", "EM_CORTE", "CORTADO"]),
@@ -111,6 +117,7 @@ const finalizacaoConferenciaSchema = z.object({
     "A_PRAZO",
     "NA_RETIRADA",
     "NA_ENTREGA",
+    "NO_RECEBIMENTO",
   ]),
   vencimento: z.coerce.date().optional(),
 });
@@ -145,10 +152,15 @@ pedidosRouter.patch("/:id/status-operacao", async (req, res) => {
   }
 
   try {
+    const opcoes = saidaPedidoSchema.safeParse(req.body);
+    if (!opcoes.success) {
+      return res.status(400).json({ erro: opcoes.error.issues[0].message });
+    }
     const pedido = await atualizarStatusOperacaoPedido(
       req.params.id,
       validacao.data,
-      req.usuario!.id
+      req.usuario!.id,
+      opcoes.data
     );
     return res.json(pedido);
   } catch (erro) {

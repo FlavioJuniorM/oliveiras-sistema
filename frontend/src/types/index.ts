@@ -47,6 +47,7 @@ export type StatusOperacaoPedido =
   | "EM_PREPARO"
   | "EXPEDICAO"
   | "PRONTO"
+  | "AGUARDANDO_RETIRADA"
   | "EM_ENTREGA"
   | "ENTREGUE";
 

@@ -14,7 +14,8 @@ const CONFIG: Record<string, { rotulo: string; cor: string; ponto: string }> = {
   EM_PREPARO: { rotulo: "Em preparo", cor: "text-gold bg-gold/10", ponto: "bg-gold" },
   EXPEDICAO: { rotulo: "Expedição", cor: "text-success bg-success/10", ponto: "bg-success" },
   PRONTO: { rotulo: "Pronto", cor: "text-success bg-success/10", ponto: "bg-success" },
-  EM_ENTREGA: { rotulo: "Em entrega", cor: "text-blue-700 bg-blue-100", ponto: "bg-blue-700" },
+  AGUARDANDO_RETIRADA: { rotulo: "Aguardando retirada", cor: "text-ink bg-gold/15", ponto: "bg-gold" },
+  EM_ENTREGA: { rotulo: "Em rota", cor: "text-blue-700 bg-blue-100", ponto: "bg-blue-700" },
   ENTREGUE: { rotulo: "Entregue", cor: "text-muted bg-black/5", ponto: "bg-muted" },
 };
 

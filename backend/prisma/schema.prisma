@@ -115,8 +115,9 @@ enum StatusPagamentoPedido {
 enum StatusOperacaoPedido {
   RECEBIDO
   EM_PREPARO
-  EXPEDICAO
+  EXPEDICAO // legado: não é mais usado (comandas fechadas vão direto para PRONTO)
   PRONTO
+  AGUARDANDO_RETIRADA
   EM_ENTREGA
   ENTREGUE
 }

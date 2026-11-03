@@ -10,12 +10,13 @@ import { StatusBadge } from "../../components/ui/StatusBadge";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 
-const FLUXO: StatusOperacaoPedido[] = ["RECEBIDO", "EM_PREPARO", "EXPEDICAO", "PRONTO", "EM_ENTREGA", "ENTREGUE"];
+// Fluxo da comanda: anota → pesa (em preparo) → fecha (prontos) → retirada ou rota → entregues
+const FLUXO: StatusOperacaoPedido[] = ["RECEBIDO", "EM_PREPARO", "PRONTO", "AGUARDANDO_RETIRADA", "EM_ENTREGA", "ENTREGUE"];
 const STATUS_CONFIG: Record<string, { titulo: string; descricao: string; fundo: string }> = {
   RECEBIDO: { titulo: "Recebidos", descricao: "Aguardando preparo", fundo: "bg-primary/10" },
   EM_PREPARO: { titulo: "Em preparo", descricao: "Cortes sendo feitos", fundo: "bg-gold/10" },
-  EXPEDICAO: { titulo: "Expedição", descricao: "Embalagem e conferência", fundo: "bg-success/10" },
-  PRONTO: { titulo: "Prontos", descricao: "Aguardando saída", fundo: "bg-success/10" },
+  PRONTO: { titulo: "Prontos", descricao: "Escolher retirada ou entrega", fundo: "bg-success/10" },
+  AGUARDANDO_RETIRADA: { titulo: "Retiradas", descricao: "Cliente vem buscar", fundo: "bg-gold/15" },
   EM_ENTREGA: { titulo: "Em rota", descricao: "Saiu para o cliente", fundo: "bg-blue-100" },
   ENTREGUE: { titulo: "Entregues", descricao: "Finalizados hoje", fundo: "bg-black/5" },
 };
@@ -82,12 +83,139 @@ function limitePesoComTolerancia(solicitado: number, toleranciaPercentual: numbe
 function prepararPedidoParaExibicao(pedido: Pedido): Pedido {
   return {
     ...pedido,
+    statusOperacao: pedido.statusOperacao === "EXPEDICAO" ? "PRONTO" : pedido.statusOperacao,
     // Ordem fixa por nome: o item não "pula" de lugar quando é pesado
     itens: [...pedido.itens].sort((a, b) => (a.produto?.nome || "").localeCompare(b.produto?.nome || "", "pt-BR")).map((item) => ({
       ...item,
       produto: item.produto ? { ...item.produto, unidadePreco: item.produto.unidadeMedida, unidadeMedida: rotuloUnidade(item.unidadePedido, item.produto.unidadeMedida) } : item.produto,
     })),
   };
+}
+
+const NOME_LOJA = "CASA DE CARNES OLIVEIRAS";
+const ENDERECO_LOJA = "Rua Ametista, 22 - Jd Mutinga";
+const FORMAS_RECEBIMENTO: { valor: string; rotulo: string }[] = [
+  { valor: "CARTAO_DEBITO", rotulo: "Cartão de débito" },
+  { valor: "CARTAO_CREDITO", rotulo: "Cartão de crédito" },
+  { valor: "PIX", rotulo: "Pix" },
+  { valor: "DINHEIRO", rotulo: "Dinheiro" },
+];
+
+/** Quanto falta receber. null = venda a prazo (cobrança pelo financeiro, não na entrega). */
+function saldoACobrar(pedido: Pedido): number | null {
+  if (pedido.contaReceber) return null;
+  const pago = (pedido.pagamentos || []).reduce((soma, pagamento) => soma + Number(pagamento.valor), 0);
+  return Math.max(Number((Number(pedido.total) - pago).toFixed(2)), 0);
+}
+
+function telefoneDoCliente(pedido: Pedido) {
+  return pedido.cliente?.telefone || pedido.cliente?.whatsapp || pedido.telefoneCliente || "";
+}
+
+function enderecoDoPedido(pedido: Pedido) {
+  return pedido.enderecoEntrega || pedido.cliente?.endereco || "";
+}
+
+function textoCobranca(pedido: Pedido) {
+  const saldo = saldoACobrar(pedido);
+  if (saldo == null) return "📄 *VENDA A PRAZO — NÃO COBRAR*";
+  if (saldo <= 0.01) return "✅ *JÁ PAGO — NÃO COBRAR*";
+  return `💳 *COBRAR NA MAQUININHA: ${formatarMoeda(saldo)}*`;
+}
+
+/** Mensagem completa para o motoboy (WhatsApp). */
+function mensagemMotoboy(pedido: Pedido) {
+  const endereco = enderecoDoPedido(pedido);
+  const telefone = telefoneDoCliente(pedido);
+  const pesoTotal = pedido.itens.reduce((soma, item) => soma + (item.produto?.tipoVenda === "PESO" && item.pesoReal != null ? Number(item.pesoReal) : 0), 0);
+  const linhas = [
+    `🛵 *ENTREGA — ${NOME_LOJA}*`,
+    "",
+    `*Pedido:* ${pedido.numero}`,
+    `*Cliente:* ${nomeDoCliente(pedido)}`,
+    telefone ? `*Telefone:* ${telefone}` : "",
+    `*Endereço:* ${endereco || "não informado"}`,
+    endereco ? `📍 Mapa: https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}` : "",
+    "",
+    `*Volumes:* ${pedido.itens.length} ${pedido.itens.length === 1 ? "item" : "itens"}${pesoTotal > 0 ? ` (${pesoTotal.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} kg)` : ""}`,
+    `*Valor do pedido:* ${formatarMoeda(pedido.total)}`,
+    textoCobranca(pedido),
+    pedido.observacoesCliente ? `*Obs.:* ${pedido.observacoesCliente}` : "",
+    "",
+    `Retirar na loja: ${ENDERECO_LOJA}`,
+  ];
+  return linhas.filter((linha, indice, todas) => linha !== "" || (todas[indice - 1] !== "" && indice > 0)).join("\n");
+}
+
+function linkWhatsAppMotoboy(pedido: Pedido) {
+  return `https://wa.me/?text=${encodeURIComponent(mensagemMotoboy(pedido))}`;
+}
+
+
+/** Mensagem pronta para o motoboy: abrir no WhatsApp ou copiar. */
+function ModalMotoboy({ pedido, onFechar }: { pedido: Pedido; onFechar: () => void }) {
+  const [copiado, setCopiado] = useState(false);
+  const [erro, setErro] = useState("");
+  async function copiar() {
+    try {
+      await navigator.clipboard.writeText(mensagemMotoboy(pedido));
+      setCopiado(true);
+      window.setTimeout(() => setCopiado(false), 2500);
+    } catch {
+      setErro("Não foi possível copiar. Selecione o texto e copie manualmente.");
+    }
+  }
+  return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4" onClick={onFechar}><div className="w-full max-w-lg rounded-card bg-surface p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <p className="font-display text-2xl uppercase text-ink">Rota para o motoboy</p><p className="mt-1 text-sm text-muted">Clique em “Abrir no WhatsApp”, escolha o contato do motoboy e envie.</p>
+    <pre className="mt-4 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-background p-4 font-sans text-sm text-ink">{mensagemMotoboy(pedido).replace(/\*/g, "")}</pre>
+    {!enderecoDoPedido(pedido) && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">Esta comanda está sem endereço.</p>}
+    {erro && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
+    <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end"><Button variante="secundaria" onClick={onFechar}>Fechar</Button><Button variante="secundaria" onClick={copiar}>{copiado ? "Copiado ✓" : "Copiar mensagem"}</Button><a href={linkWhatsAppMotoboy(pedido)} target="_blank" rel="noreferrer"><Button className="w-full bg-[#1f9d55] hover:bg-[#187a42]">Abrir no WhatsApp</Button></a></div>
+  </div></div>;
+}
+
+/** Botões de saída da comanda (Prontos → Retirada/Entrega → Entregues). */
+function AcoesSaida({ pedido, onAtualizado, onGerarRota }: { pedido: Pedido; onAtualizado: (pedido: Pedido) => void; onGerarRota: (pedido: Pedido) => void }) {
+  const status = pedido.statusOperacao || "RECEBIDO";
+  const [modal, setModal] = useState<"" | "entrega" | "concluir">("");
+  const [endereco, setEndereco] = useState(enderecoDoPedido(pedido));
+  const [formaRecebida, setFormaRecebida] = useState("CARTAO_DEBITO");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+  const saldo = saldoACobrar(pedido);
+  const precisaReceber = saldo != null && saldo > 0.01;
+
+  async function mover(statusOperacao: StatusOperacaoPedido, extras: Record<string, string> = {}) {
+    setSalvando(true);
+    setErro("");
+    try {
+      const atualizado = await api<Pedido>(`/pedidos/${pedido.id}/status-operacao`, { method: "PATCH", body: { statusOperacao, ...extras } });
+      setModal("");
+      onAtualizado(atualizado);
+      if (statusOperacao === "EM_ENTREGA") onGerarRota(prepararPedidoParaExibicao(atualizado));
+    } catch (e) {
+      setErro(e instanceof ErroApi ? e.message : "Não foi possível atualizar a comanda.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+
+
+  const parar = (e: React.MouseEvent) => e.stopPropagation();
+
+  return <div onClick={parar} className="flex flex-col gap-2">
+    {status === "PRONTO" && <div className="grid grid-cols-2 gap-2"><Button variante="secundaria" disabled={salvando} onClick={() => mover("AGUARDANDO_RETIRADA")}>🏪 Retirada</Button><Button disabled={salvando} onClick={() => { setErro(""); setModal("entrega"); }}>🛵 Entrega</Button></div>}
+    {status === "AGUARDANDO_RETIRADA" && <div className="grid grid-cols-2 gap-2"><Button variante="secundaria" disabled={salvando} onClick={() => mover("PRONTO")}>Voltar</Button><Button disabled={salvando} onClick={() => precisaReceber ? setModal("concluir") : mover("ENTREGUE")}>Cliente retirou</Button></div>}
+    {status === "EM_ENTREGA" && <div className="grid grid-cols-2 gap-2"><Button variante="secundaria" onClick={() => onGerarRota(pedido)}>📲 Gerar rota (motoboy)</Button><Button disabled={salvando} onClick={() => precisaReceber ? setModal("concluir") : mover("ENTREGUE")}>Entregue</Button></div>}
+    {erro && !modal && <p className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{erro}</p>}
+
+    {modal && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4" onClick={() => setModal("")}><div className="w-full max-w-lg rounded-card bg-surface p-6 shadow-2xl" onClick={parar}>
+      {modal === "entrega" && <><p className="font-display text-2xl uppercase text-ink">Enviar para entrega</p><p className="mt-1 text-sm text-muted">Comanda {pedido.numero} · {nomeDoCliente(pedido)}</p><div className="mt-4"><Input label="Endereço de entrega" value={endereco} onChange={(e) => setEndereco(e.target.value)} placeholder="Rua, número, bairro, complemento" autoFocus /></div><p className="mt-3 rounded-lg bg-background px-3 py-2 text-sm text-ink">{textoCobranca(pedido).replace(/\*/g, "")}</p>{erro && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}<div className="mt-5 flex justify-end gap-2"><Button variante="secundaria" onClick={() => setModal("")}>Cancelar</Button><Button disabled={salvando || !endereco.trim()} onClick={() => mover("EM_ENTREGA", { enderecoEntrega: endereco.trim() })}>{salvando ? "Enviando..." : "Mandar para a rota"}</Button></div></>}
+      {modal === "concluir" && <><p className="font-display text-2xl uppercase text-ink">{status === "EM_ENTREGA" ? "Confirmar entrega" : "Confirmar retirada"}</p><p className="mt-1 text-sm text-muted">Comanda {pedido.numero} · {nomeDoCliente(pedido)}</p><div className="mt-4 rounded-lg bg-background px-4 py-3"><p className="text-sm text-muted">Valor recebido</p><p className="font-display text-3xl text-gold">{formatarMoeda(saldo || 0)}</p></div><p className="mt-4 text-sm font-semibold text-ink">Como o cliente pagou?</p><div className="mt-2 grid grid-cols-2 gap-2">{FORMAS_RECEBIMENTO.map((forma) => <button key={forma.valor} type="button" onClick={() => setFormaRecebida(forma.valor)} className={`rounded-lg border px-3 py-3 text-sm font-semibold ${formaRecebida === forma.valor ? "border-primary bg-primary/5 text-primary" : "border-border text-ink"}`}>{forma.rotulo}</button>)}</div>{erro && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}<div className="mt-5 flex justify-end gap-2"><Button variante="secundaria" onClick={() => setModal("")}>Cancelar</Button><Button disabled={salvando} onClick={() => mover("ENTREGUE", { formaRecebida })}>{salvando ? "Salvando..." : "Concluir e mover para entregues"}</Button></div></>}
+
+    </div></div>}
+  </div>;
 }
 
 function proximoStatus(status: string): StatusOperacaoPedido | null {
@@ -100,6 +228,7 @@ export function PedidosDoDia() {
   const [filtro, setFiltro] = useState("TODOS");
   const [carregando, setCarregando] = useState(true);
   const [comandaAberta, setComandaAberta] = useState<Pedido | null>(null);
+  const [rotaAberta, setRotaAberta] = useState<Pedido | null>(null);
   const [erro, setErro] = useState("");
   const [toleranciaPesagemPercentual, setToleranciaPesagemPercentual] = useState(10);
 
@@ -130,7 +259,8 @@ export function PedidosDoDia() {
   function atualizarPedidoNaLista(atualizado: Pedido) {
     const pedidoPreparado = prepararPedidoParaExibicao(atualizado);
     setPedidos((atuais) => atuais.map((pedido) => pedido.id === pedidoPreparado.id ? pedidoPreparado : pedido));
-    setComandaAberta(pedidoPreparado);
+    // Só atualiza a comanda aberta se ela já estiver aberta (ações do card não abrem o modal)
+    setComandaAberta((aberta) => aberta && aberta.id === pedidoPreparado.id ? pedidoPreparado : aberta);
   }
 
   return (
@@ -148,14 +278,16 @@ export function PedidosDoDia() {
           const status = pedido.statusOperacao || "RECEBIDO";
           const config = STATUS_CONFIG[status] || STATUS_CONFIG.RECEBIDO;
           const cortesFeitos = pedido.itens.filter((item) => item.statusPreparo === "CORTADO").length;
-          return <button key={pedido.id} type="button" onClick={() => setComandaAberta(pedido)} className="flex flex-col overflow-hidden rounded-card border border-border bg-surface text-left shadow-card transition hover:border-primary">
+          return <div key={pedido.id} onClick={() => setComandaAberta(pedido)} className="flex cursor-pointer flex-col overflow-hidden rounded-card border border-border bg-surface text-left shadow-card transition hover:border-primary">
             <div className={`flex items-center justify-between px-5 py-4 ${config.fundo}`}><div><p className="font-display text-2xl tracking-wide text-ink">{pedido.numero}</p><p className="mt-0.5 text-xs text-muted">{formatarDataHora(pedido.criadoEm)}</p></div><StatusBadge status={status} /></div>
             <div className="flex-1 px-5 py-4"><div className="flex items-start justify-between gap-3 border-b border-border pb-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-muted">Cliente / restaurante</p><p className="mt-1 text-lg font-semibold text-ink">{nomeDoCliente(pedido)}</p></div><div className="text-right">{cortesFeitos === pedido.itens.length ? <p className="whitespace-nowrap font-bold text-ink">{formatarMoeda(pedido.total)}</p> : <p className="whitespace-nowrap text-xs font-semibold text-gold">Aguardando pesagem</p>}</div></div><div className="mt-4 space-y-2">{pedido.itens.map((item) => <div key={item.id} className="flex items-start justify-between gap-3 rounded-lg border border-border bg-background/60 px-3 py-2"><div><p className="font-semibold text-ink">{item.produto?.nome || "Carne / produto"}</p><p className="mt-0.5 text-xs text-muted">Pediu: {textoPedido(item)} · Balança: {textoReal(item)}</p></div><p className={`whitespace-nowrap text-sm font-semibold ${item.statusPreparo === "CORTADO" ? "text-ink" : "text-muted"}`}>{item.statusPreparo === "CORTADO" ? formatarMoeda(item.subtotal) : "—"}</p></div>)}</div></div>
-            <div className="flex items-center justify-between border-t border-border bg-background px-5 py-3"><span className="text-xs font-semibold text-muted">{cortesFeitos}/{pedido.itens.length} itens pesados</span><span className="text-sm font-semibold text-primary">Abrir comanda →</span></div>
-          </button>;
+            <div className="flex items-center justify-between border-t border-border bg-background px-5 py-3"><span className="text-xs font-semibold text-muted">{cortesFeitos}/{pedido.itens.length} itens pesados</span><button type="button" onClick={(e) => { e.stopPropagation(); setComandaAberta(pedido); }} className="text-sm font-semibold text-primary">Abrir comanda →</button></div>
+            {["PRONTO", "AGUARDANDO_RETIRADA", "EM_ENTREGA"].includes(status) && <div className="border-t border-border px-5 py-3">{status === "EM_ENTREGA" && <p className="mb-2 truncate text-xs text-muted">📍 {enderecoDoPedido(pedido) || "sem endereço"}</p>}<AcoesSaida pedido={pedido} onAtualizado={atualizarPedidoNaLista} onGerarRota={setRotaAberta} /></div>}
+          </div>;
         })}
       </div>
-      {comandaAberta && <ModalComanda pedido={comandaAberta} toleranciaPesagemPercentual={toleranciaPesagemPercentual} onFechar={() => setComandaAberta(null)} onAtualizado={atualizarPedidoNaLista} />}
+      {comandaAberta && <ModalComanda pedido={comandaAberta} toleranciaPesagemPercentual={toleranciaPesagemPercentual} onFechar={() => setComandaAberta(null)} onAtualizado={atualizarPedidoNaLista} onGerarRota={setRotaAberta} />}
+      {rotaAberta && <ModalMotoboy pedido={rotaAberta} onFechar={() => setRotaAberta(null)} />}
     </div>
   );
 }
@@ -164,7 +296,7 @@ function Filtro({ titulo, quantidade, ativo, onClick }: { titulo: string; quanti
   return <button type="button" onClick={onClick} className={`rounded-card border p-3 text-left transition ${ativo ? "border-primary bg-primary text-white" : "border-border bg-surface hover:border-primary"}`}><p className="text-xs font-semibold uppercase tracking-wide opacity-80">{titulo}</p><p className={`mt-1 font-display text-3xl ${ativo ? "text-white" : "text-ink"}`}>{quantidade}</p></button>;
 }
 
-function ModalComanda({ pedido, toleranciaPesagemPercentual, onFechar, onAtualizado }: { pedido: Pedido; toleranciaPesagemPercentual: number; onFechar: () => void; onAtualizado: (pedido: Pedido) => void }) {
+function ModalComanda({ pedido, toleranciaPesagemPercentual, onFechar, onAtualizado, onGerarRota }: { pedido: Pedido; toleranciaPesagemPercentual: number; onFechar: () => void; onAtualizado: (pedido: Pedido) => void; onGerarRota: (pedido: Pedido) => void }) {
   const { usuario } = useAuth();
   const [peso, setPeso] = useState<Record<string, string>>({});
   const [carregando, setCarregando] = useState("");
@@ -176,7 +308,7 @@ function ModalComanda({ pedido, toleranciaPesagemPercentual, onFechar, onAtualiz
   const proximo = proximoStatus(status);
   const todosCortados = pedido.itens.length > 0 && pedido.itens.every((item) => item.statusPreparo === "CORTADO");
   const podeFinalizar = todosCortados && (status === "RECEBIDO" || status === "EM_PREPARO");
-  const podeImprimir = ["EXPEDICAO", "PRONTO", "EM_ENTREGA", "ENTREGUE"].includes(status);
+  const podeImprimir = ["EXPEDICAO", "PRONTO", "AGUARDANDO_RETIRADA", "EM_ENTREGA", "ENTREGUE"].includes(status);
 
   async function imprimir(tipo: "corte" | "cliente") {
     setImprimindo(true);
@@ -247,9 +379,9 @@ function ModalComanda({ pedido, toleranciaPesagemPercentual, onFechar, onAtualiz
         </div>; })}</div>
       {pesados > 0 && <div className="mt-4 flex items-center justify-between rounded-lg bg-background px-4 py-3"><span className="text-sm font-semibold text-ink">{todosCortados ? "Valor da comanda" : `Parcial (${pesados} de ${pedido.itens.length} itens pesados)`}</span><span className={`font-display text-3xl ${todosCortados ? "text-gold" : "text-muted"}`}>{formatarMoeda(totalPesado)}</span></div>}
       {erro && <p className="mt-4 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
-      {podeImprimir && <div className="mt-6 rounded-lg border-2 border-success/30 bg-success/5 p-4"><p className="font-display text-2xl uppercase text-ink">Comanda fechada</p><p className="mt-1 text-sm text-muted">Imprima a nota com a logo, os pesos e o valor total para enviar ao cliente.</p><Button className="mt-4 w-full" tamanho="grande" disabled={imprimindo} onClick={() => imprimir("cliente")}>{imprimindo ? "Preparando impressão..." : "Imprimir nota do cliente"}</Button></div>}
-      {podeFinalizar && <div className="mt-6 rounded-lg border-2 border-primary/20 bg-primary/5 p-4"><p className="font-display text-2xl uppercase text-ink">Tudo pesado</p><p className="mt-1 text-sm text-muted">Confira o valor e defina o pagamento para enviar à expedição.</p><Button className="mt-4 w-full" tamanho="grande" onClick={() => setFinalizacaoAberta(true)}>Fechar comanda</Button></div>}
-      <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between"><div className="flex flex-col gap-2 sm:flex-row"><Button variante="secundaria" onClick={onFechar}>Fechar</Button><Button variante="secundaria" disabled={imprimindo} onClick={() => imprimir("corte")}>Imprimir pedido para os cortes</Button></div>{proximo && status !== "EM_PREPARO" && status !== "RECEBIDO" && <Button tamanho="grande" disabled={carregando === "status"} onClick={avancar}>{carregando === "status" ? "Atualizando..." : `Enviar para ${STATUS_CONFIG[proximo].titulo.toLowerCase()}`}</Button>}</div>
+      {podeImprimir && <div className="mt-6 rounded-lg border-2 border-success/30 bg-success/5 p-4"><p className="font-display text-2xl uppercase text-ink">Comanda fechada</p><p className="mt-1 text-sm text-muted">Imprima a nota com a logo, os pesos e o valor total para enviar ao cliente.</p><Button className="mt-4 w-full" tamanho="grande" disabled={imprimindo} onClick={() => imprimir("cliente")}>{imprimindo ? "Preparando impressão..." : "Imprimir nota do cliente"}</Button>{status !== "ENTREGUE" && <div className="mt-4 border-t border-success/20 pt-4"><p className="mb-2 text-sm font-semibold text-ink">{status === "PRONTO" ? "Como o pedido vai sair?" : status === "AGUARDANDO_RETIRADA" ? "Aguardando o cliente retirar" : `Em rota · ${enderecoDoPedido(pedido)}`}</p><AcoesSaida pedido={pedido} onAtualizado={onAtualizado} onGerarRota={onGerarRota} /></div>}</div>}
+      {podeFinalizar && <div className="mt-6 rounded-lg border-2 border-primary/20 bg-primary/5 p-4"><p className="font-display text-2xl uppercase text-ink">Tudo pesado</p><p className="mt-1 text-sm text-muted">Confira o valor e defina o pagamento. A comanda vai para Prontos.</p><Button className="mt-4 w-full" tamanho="grande" onClick={() => setFinalizacaoAberta(true)}>Fechar comanda</Button></div>}
+      <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between"><div className="flex flex-col gap-2 sm:flex-row"><Button variante="secundaria" onClick={onFechar}>Fechar</Button><Button variante="secundaria" disabled={imprimindo} onClick={() => imprimir("corte")}>Imprimir pedido para os cortes</Button></div></div>
     </div></div>{finalizacaoAberta && <ModalFinalizacao pedido={pedido} onFechar={() => setFinalizacaoAberta(false)} onFinalizado={(atualizado) => { setFinalizacaoAberta(false); onAtualizado(atualizado); }} />}</div>;
 }
 
@@ -274,12 +406,12 @@ function ModalFinalizacaoPublico({ pedido, formaPagamento, onFechar, onFinalizad
     }
   }
 
-  return <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-3 py-5 sm:px-6"><div className="mx-auto max-w-3xl overflow-hidden rounded-card bg-surface shadow-2xl"><div className="flex items-start justify-between bg-ink px-6 py-5 text-white"><div><p className="font-display text-3xl uppercase">Conferência do pedido online</p><p className="mt-1 text-sm text-white/70">Comanda {pedido.numero} · {nomeDoCliente(pedido)}</p></div><button type="button" onClick={onFechar} className="text-2xl text-white/70">×</button></div><div className="p-6"><div className="grid gap-3 sm:grid-cols-2"><div className="rounded-lg border border-border bg-background p-4"><p className="text-xs uppercase tracking-wide text-muted">Cliente</p><p className="mt-1 font-semibold text-ink">{nomeDoCliente(pedido)}</p><p className="mt-1 text-sm text-muted">{pedido.telefoneCliente || "Telefone não informado"}</p></div><div className="rounded-lg border border-border bg-background p-4"><p className="text-xs uppercase tracking-wide text-muted">Recebimento</p><p className="mt-1 font-semibold text-ink">{delivery ? "Delivery" : "Retirada na loja"}</p><p className="mt-1 text-sm text-muted">Pagamento {delivery ? "na entrega" : "na retirada"}</p></div></div>{delivery && pedido.enderecoEntrega && <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-4"><p className="text-xs uppercase tracking-wide text-muted">Endereço de entrega</p><p className="mt-1 text-sm font-semibold text-ink">{pedido.enderecoEntrega}</p></div>}{pedido.observacoesCliente && <div className="mt-3 rounded-lg border border-border p-4"><p className="text-xs uppercase tracking-wide text-muted">Observações do cliente</p><p className="mt-1 text-sm text-ink">{pedido.observacoesCliente}</p></div>}<div className="mt-5 overflow-hidden rounded-lg border border-border"><div className="divide-y divide-border">{pedido.itens.map((item) => <div key={item.id} className="flex items-start justify-between gap-3 px-4 py-3"><div><p className="font-semibold text-ink">{item.produto?.nome || "Produto"}</p><p className="mt-1 text-xs text-muted">Pediu: {textoPedido(item)} · Balança: {textoReal(item)}</p></div><strong className="text-ink">{formatarMoeda(item.subtotal)}</strong></div>)}<div className="flex items-center justify-between bg-background px-4 py-4"><span className="font-semibold text-ink">Valor final</span><span className="font-display text-3xl text-gold">{formatarMoeda(pedido.total)}</span></div></div></div><div className="mt-5 rounded-lg border-2 border-primary/20 bg-primary/5 p-5"><p className="font-display text-2xl uppercase text-ink">Pedido pronto para expedição</p><p className="mt-1 text-sm text-muted">O pagamento ficará pendente até o momento combinado com o cliente: {delivery ? "na entrega" : "na retirada"}.</p>{erro && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}</div><div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Button variante="secundaria" onClick={onFechar}>Voltar para a comanda</Button><Button tamanho="grande" disabled={salvando} onClick={confirmar}>{salvando ? "Finalizando..." : "Confirmar e enviar para expedição"}</Button></div></div></div></div>;
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-3 py-5 sm:px-6"><div className="mx-auto max-w-3xl overflow-hidden rounded-card bg-surface shadow-2xl"><div className="flex items-start justify-between bg-ink px-6 py-5 text-white"><div><p className="font-display text-3xl uppercase">Conferência do pedido online</p><p className="mt-1 text-sm text-white/70">Comanda {pedido.numero} · {nomeDoCliente(pedido)}</p></div><button type="button" onClick={onFechar} className="text-2xl text-white/70">×</button></div><div className="p-6"><div className="grid gap-3 sm:grid-cols-2"><div className="rounded-lg border border-border bg-background p-4"><p className="text-xs uppercase tracking-wide text-muted">Cliente</p><p className="mt-1 font-semibold text-ink">{nomeDoCliente(pedido)}</p><p className="mt-1 text-sm text-muted">{pedido.telefoneCliente || "Telefone não informado"}</p></div><div className="rounded-lg border border-border bg-background p-4"><p className="text-xs uppercase tracking-wide text-muted">Recebimento</p><p className="mt-1 font-semibold text-ink">{delivery ? "Delivery" : "Retirada na loja"}</p><p className="mt-1 text-sm text-muted">Pagamento {delivery ? "na entrega" : "na retirada"}</p></div></div>{delivery && pedido.enderecoEntrega && <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-4"><p className="text-xs uppercase tracking-wide text-muted">Endereço de entrega</p><p className="mt-1 text-sm font-semibold text-ink">{pedido.enderecoEntrega}</p></div>}{pedido.observacoesCliente && <div className="mt-3 rounded-lg border border-border p-4"><p className="text-xs uppercase tracking-wide text-muted">Observações do cliente</p><p className="mt-1 text-sm text-ink">{pedido.observacoesCliente}</p></div>}<div className="mt-5 overflow-hidden rounded-lg border border-border"><div className="divide-y divide-border">{pedido.itens.map((item) => <div key={item.id} className="flex items-start justify-between gap-3 px-4 py-3"><div><p className="font-semibold text-ink">{item.produto?.nome || "Produto"}</p><p className="mt-1 text-xs text-muted">Pediu: {textoPedido(item)} · Balança: {textoReal(item)}</p></div><strong className="text-ink">{formatarMoeda(item.subtotal)}</strong></div>)}<div className="flex items-center justify-between bg-background px-4 py-4"><span className="font-semibold text-ink">Valor final</span><span className="font-display text-3xl text-gold">{formatarMoeda(pedido.total)}</span></div></div></div><div className="mt-5 rounded-lg border-2 border-primary/20 bg-primary/5 p-5"><p className="font-display text-2xl uppercase text-ink">Pedido pronto</p><p className="mt-1 text-sm text-muted">O pagamento ficará pendente até o momento combinado com o cliente: {delivery ? "na entrega" : "na retirada"}.</p>{erro && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}</div><div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Button variante="secundaria" onClick={onFechar}>Voltar para a comanda</Button><Button tamanho="grande" disabled={salvando} onClick={confirmar}>{salvando ? "Finalizando..." : "Fechar comanda (vai para Prontos)"}</Button></div></div></div></div>;
 }
 
 function ModalFinalizacao({ pedido, onFechar, onFinalizado }: { pedido: Pedido; onFechar: () => void; onFinalizado: (pedido: Pedido) => void }) {
   const pedidoPublico = pedido.canal === "PUBLICO";
-  const [forma, setForma] = useState(pedidoPublico ? (pedido.tipoEntrega === "DELIVERY" ? "NA_ENTREGA" : "NA_RETIRADA") : "DINHEIRO");
+  const [forma, setForma] = useState(pedidoPublico ? (pedido.tipoEntrega === "DELIVERY" ? "NA_ENTREGA" : "NA_RETIRADA") : "NO_RECEBIMENTO");
   const [vencimento, setVencimento] = useState("");
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -299,5 +431,5 @@ function ModalFinalizacao({ pedido, onFechar, onFinalizado }: { pedido: Pedido; 
   if (pedidoPublico) {
     return <ModalFinalizacaoPublico pedido={pedido} formaPagamento={forma} onFechar={onFechar} onFinalizado={onFinalizado} />;
   }
-  return <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-3 py-5 sm:px-6"><div className="mx-auto max-w-3xl overflow-hidden rounded-card bg-surface shadow-2xl"><div className="flex items-start justify-between bg-ink px-6 py-5 text-white"><div><p className="font-display text-3xl uppercase">Conferência final</p><p className="mt-1 text-sm text-white/70">Comanda {pedido.numero} · {nomeDoCliente(pedido)}</p></div><button type="button" onClick={onFechar} className="text-2xl text-white/70">×</button></div><div className="p-6"><p className="text-sm text-muted">Confira o que o cliente pediu, o peso da balança de cada item e o valor final.</p><div className="mt-4 overflow-hidden rounded-lg border border-border"><div className="hidden grid-cols-5 gap-3 bg-background px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted sm:grid"><span>Carne</span><span>Pediu</span><span>Balança</span><span>Preço</span><span className="text-right">Subtotal</span></div><div className="divide-y divide-border">{pedido.itens.map((item) => <div key={item.id} className="grid grid-cols-2 gap-2 px-4 py-3 text-sm sm:grid-cols-5 sm:gap-3"><div><p className="font-semibold text-ink">{item.produto?.nome}</p><p className="text-xs text-muted sm:hidden">Pediu: {textoPedido(item)} · Balança: {textoReal(item)}</p></div><span className="hidden text-muted sm:block">{textoPedido(item)}</span><span className="hidden text-success sm:block">{textoReal(item)}</span><span className="hidden text-muted sm:block">{precoPorUnidade(item)}</span><span className="col-span-2 text-right font-semibold text-ink sm:col-span-1">{formatarMoeda(item.subtotal)}</span></div>)}<div className="flex items-center justify-between bg-background px-4 py-4"><span className="font-semibold text-ink">Valor final da nota</span><span className="font-display text-3xl text-gold">{formatarMoeda(pedido.total)}</span></div></div></div><div className="mt-6 rounded-lg border-2 border-primary/20 bg-primary/5 p-5"><p className="font-display text-2xl uppercase text-ink">Condição de pagamento</p><p className="mt-1 text-sm text-muted">Escolha como o cliente vai pagar esta comanda.</p><div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2"><button type="button" onClick={() => setForma("DINHEIRO")} className={`rounded-lg border p-4 text-left ${forma !== "A_PRAZO" ? "border-primary bg-white" : "border-border bg-surface"}`}><p className="font-semibold text-ink">Pagamento à vista</p><p className="mt-1 text-xs text-muted">Receber agora</p></button><button type="button" onClick={() => setForma("A_PRAZO")} className={`rounded-lg border p-4 text-left ${forma === "A_PRAZO" ? "border-primary bg-white" : "border-border bg-surface"}`}><p className="font-semibold text-ink">Pagamento posterior</p><p className="mt-1 text-xs text-muted">Lançar em contas a receber</p></button></div>{forma !== "A_PRAZO" && <div className="mt-3"><label className="text-sm font-medium text-ink">Forma à vista</label><select value={forma} onChange={(e) => setForma(e.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-white px-3.5 text-sm"><option value="DINHEIRO">Dinheiro</option><option value="PIX">Pix</option><option value="CARTAO_DEBITO">Cartão de débito</option><option value="CARTAO_CREDITO">Cartão de crédito</option><option value="TRANSFERENCIA">Transferência</option></select></div>}{forma === "A_PRAZO" && <div className="mt-3"><Input label="Data para pagamento" type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} required /></div>}{erro && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}</div><div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Button variante="secundaria" onClick={onFechar}>Voltar para a comanda</Button><Button tamanho="grande" disabled={salvando} onClick={confirmar}>{salvando ? "Finalizando..." : "Finalizar e enviar para expedição"}</Button></div></div></div></div>;
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-3 py-5 sm:px-6"><div className="mx-auto max-w-3xl overflow-hidden rounded-card bg-surface shadow-2xl"><div className="flex items-start justify-between bg-ink px-6 py-5 text-white"><div><p className="font-display text-3xl uppercase">Conferência final</p><p className="mt-1 text-sm text-white/70">Comanda {pedido.numero} · {nomeDoCliente(pedido)}</p></div><button type="button" onClick={onFechar} className="text-2xl text-white/70">×</button></div><div className="p-6"><p className="text-sm text-muted">Confira o que o cliente pediu, o peso da balança de cada item e o valor final.</p><div className="mt-4 overflow-hidden rounded-lg border border-border"><div className="hidden grid-cols-5 gap-3 bg-background px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted sm:grid"><span>Carne</span><span>Pediu</span><span>Balança</span><span>Preço</span><span className="text-right">Subtotal</span></div><div className="divide-y divide-border">{pedido.itens.map((item) => <div key={item.id} className="grid grid-cols-2 gap-2 px-4 py-3 text-sm sm:grid-cols-5 sm:gap-3"><div><p className="font-semibold text-ink">{item.produto?.nome}</p><p className="text-xs text-muted sm:hidden">Pediu: {textoPedido(item)} · Balança: {textoReal(item)}</p></div><span className="hidden text-muted sm:block">{textoPedido(item)}</span><span className="hidden text-success sm:block">{textoReal(item)}</span><span className="hidden text-muted sm:block">{precoPorUnidade(item)}</span><span className="col-span-2 text-right font-semibold text-ink sm:col-span-1">{formatarMoeda(item.subtotal)}</span></div>)}<div className="flex items-center justify-between bg-background px-4 py-4"><span className="font-semibold text-ink">Valor final da nota</span><span className="font-display text-3xl text-gold">{formatarMoeda(pedido.total)}</span></div></div></div><div className="mt-6 rounded-lg border-2 border-primary/20 bg-primary/5 p-5"><p className="font-display text-2xl uppercase text-ink">Condição de pagamento</p><p className="mt-1 text-sm text-muted">Escolha como o cliente vai pagar esta comanda.</p><div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3"><button type="button" onClick={() => setForma("NO_RECEBIMENTO")} className={`rounded-lg border p-4 text-left ${forma === "NO_RECEBIMENTO" ? "border-primary bg-white" : "border-border bg-surface"}`}><p className="font-semibold text-ink">Cobrar na entrega / retirada</p><p className="mt-1 text-xs text-muted">Maquininha com o motoboy ou no balcão</p></button><button type="button" onClick={() => setForma("DINHEIRO")} className={`rounded-lg border p-4 text-left ${forma !== "A_PRAZO" && forma !== "NO_RECEBIMENTO" ? "border-primary bg-white" : "border-border bg-surface"}`}><p className="font-semibold text-ink">Pagamento à vista</p><p className="mt-1 text-xs text-muted">Receber agora</p></button><button type="button" onClick={() => setForma("A_PRAZO")} className={`rounded-lg border p-4 text-left ${forma === "A_PRAZO" ? "border-primary bg-white" : "border-border bg-surface"}`}><p className="font-semibold text-ink">Pagamento posterior</p><p className="mt-1 text-xs text-muted">Lançar em contas a receber</p></button></div>{forma !== "A_PRAZO" && forma !== "NO_RECEBIMENTO" && <div className="mt-3"><label className="text-sm font-medium text-ink">Forma à vista</label><select value={forma} onChange={(e) => setForma(e.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-white px-3.5 text-sm"><option value="DINHEIRO">Dinheiro</option><option value="PIX">Pix</option><option value="CARTAO_DEBITO">Cartão de débito</option><option value="CARTAO_CREDITO">Cartão de crédito</option><option value="TRANSFERENCIA">Transferência</option></select></div>}{forma === "A_PRAZO" && <div className="mt-3"><Input label="Data para pagamento" type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} required /></div>}{erro && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}</div><div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Button variante="secundaria" onClick={onFechar}>Voltar para a comanda</Button><Button tamanho="grande" disabled={salvando} onClick={confirmar}>{salvando ? "Finalizando..." : "Fechar comanda (vai para Prontos)"}</Button></div></div></div></div>;
 }

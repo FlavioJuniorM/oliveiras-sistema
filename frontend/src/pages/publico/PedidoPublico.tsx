@@ -52,6 +52,7 @@ const STATUS: Record<StatusOperacaoPedido, { titulo: string; descricao: string }
   EM_PREPARO: { titulo: "Em preparo", descricao: "Os cortes estão sendo preparados." },
   EXPEDICAO: { titulo: "Em conferência", descricao: "O pedido está sendo embalado e conferido." },
   PRONTO: { titulo: "Pronto", descricao: "Seu pedido está pronto para retirada ou saída." },
+  AGUARDANDO_RETIRADA: { titulo: "Pronto para retirada", descricao: "Seu pedido está pronto. Pode vir buscar na loja." },
   EM_ENTREGA: { titulo: "Em entrega", descricao: "O pedido saiu para entrega." },
   ENTREGUE: { titulo: "Concluído", descricao: "Pedido concluído. Obrigado!" },
 };
