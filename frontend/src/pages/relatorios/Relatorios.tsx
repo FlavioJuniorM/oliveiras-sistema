@@ -60,7 +60,7 @@ export function Relatorios() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card>
             <CardTitulo>Vendas no período</CardTitulo>
-            <p className="font-display text-3xl text-gold mt-2 tracking-wide">
+            <p className="font-display text-3xl text-gold-texto mt-2 tracking-wide">
               {formatarMoeda(vendas.totalPeriodo)}
             </p>
             <p className="text-muted text-sm mt-1">{vendas.numeroPedidos} pedido(s)</p>

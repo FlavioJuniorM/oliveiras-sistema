@@ -90,7 +90,7 @@ export function FechamentoCaixa() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div><p className="text-sm text-muted">Tudo o que foi recebido no dia, por forma de pagamento</p><h2 className="mt-1 font-display text-3xl uppercase tracking-wide text-ink">Fechamento de caixa</h2></div>
+        <div><p className="text-sm text-muted">Tudo o que foi recebido no dia, por forma de pagamento</p></div>
         <div className="flex items-end gap-2"><Input label="Dia" type="date" value={data} max={dataLocalISO()} onChange={(e) => e.target.value && setData(e.target.value)} /><Button variante="secundaria" disabled={!caixa} onClick={imprimir}>🖨 Imprimir</Button></div>
       </div>
       {erro && <p className="rounded-lg bg-danger/10 px-4 py-3 text-sm text-danger">{erro}</p>}
@@ -102,7 +102,7 @@ export function FechamentoCaixa() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Card className="border-2 border-success/30"><p className="text-sm text-muted">Total recebido no dia</p><p className="mt-1 font-display text-4xl text-success">{formatarMoeda(caixa.totalRecebido)}</p></Card>
           <Card><p className="text-sm text-muted">Total nas maquininhas (débito + crédito)</p><p className="mt-1 font-display text-3xl text-ink">{formatarMoeda(caixa.totalCartoes)}</p><p className="mt-1 text-xs text-muted">Compare com o relatório da maquininha</p></Card>
-          <Card><p className="text-sm text-muted">Vendido a prazo (não entra no caixa)</p><p className="mt-1 font-display text-3xl text-gold">{formatarMoeda(caixa.vendasAPrazo.total)}</p><p className="mt-1 text-xs text-muted">{caixa.vendasAPrazo.quantidade} comanda(s){caixa.comandasCanceladas > 0 ? ` · ${caixa.comandasCanceladas} cancelada(s) no dia` : ""}</p></Card>
+          <Card><p className="text-sm text-muted">Vendido a prazo (não entra no caixa)</p><p className="mt-1 font-display text-3xl text-gold-texto">{formatarMoeda(caixa.vendasAPrazo.total)}</p><p className="mt-1 text-xs text-muted">{caixa.vendasAPrazo.quantidade} comanda(s){caixa.comandasCanceladas > 0 ? ` · ${caixa.comandasCanceladas} cancelada(s) no dia` : ""}</p></Card>
         </div>
         <Card padded={false}>
           <div className="px-5 pt-5"><CardTitulo>Recebimentos do dia</CardTitulo></div>

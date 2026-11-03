@@ -23,8 +23,9 @@ export function dataLocalISO(data: Date = new Date()) {
   return `${data.getFullYear()}-${mes}-${dia}`;
 }
 
+/** "03/11/2026 18:10" — sem segundos (ruído visual). */
 export function formatarDataHora(data: string | Date) {
-  return new Date(data).toLocaleString("pt-BR");
+  return new Date(data).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).replace(",", "");
 }
 
 /** "5 kg", "500 g", "15 unidades", "1 unidade" — como o pedido foi anotado. */

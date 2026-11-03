@@ -41,12 +41,12 @@ export function Usuarios() {
       <Card padded={false}>
         <div className="divide-y divide-border">
           {usuarios.map((u) => (
-            <div key={u.id} className="flex items-center justify-between px-5 py-4">
+            <div key={u.id} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="font-medium text-ink">{u.nome}</p>
                 <p className="text-xs text-muted mt-0.5">{u.login}</p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <span className="text-xs font-medium text-muted">
                   {u.papel === "ADMINISTRATIVO" ? "Administrativo" : "Funcionário"}
                 </span>

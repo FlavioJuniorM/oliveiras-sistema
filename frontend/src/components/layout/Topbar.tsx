@@ -5,8 +5,8 @@ export function Topbar({ titulo }: { titulo: string }) {
   const { usuario, sair } = useAuth();
 
   return (
-    <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
-      <h1 className="font-display text-2xl tracking-wide text-ink">{titulo}</h1>
+    <header className="flex items-center justify-between border-b border-border bg-surface px-4 py-3 lg:px-6 lg:py-4">
+      <h1 className="font-display text-xl tracking-wide text-ink lg:text-2xl">{titulo}</h1>
 
       <div className="flex items-center gap-4">
         <div className="hidden text-right leading-tight sm:block">
@@ -18,7 +18,7 @@ export function Topbar({ titulo }: { titulo: string }) {
         </div>
         <button
           onClick={sair}
-          className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-ink hover:bg-background"
+          className="hidden rounded-lg border border-border px-3 py-2 text-sm font-medium text-ink hover:bg-background lg:block"
         >
           Sair
         </button>

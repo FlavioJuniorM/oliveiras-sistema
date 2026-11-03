@@ -30,7 +30,7 @@ export function Clientes() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div><p className="text-muted text-sm">{clientes.length} cliente(s) encontrado(s)</p><h2 className="font-display text-3xl uppercase tracking-wide text-ink mt-1">Clientes e restaurantes</h2></div>
+        <div><p className="text-muted text-sm">{clientes.length} cliente(s) encontrado(s)</p></div>
         <Button onClick={() => setMostrarFormulario(true)}>Novo cliente</Button>
       </div>
       <Input placeholder="Buscar por nome, restaurante, CPF/CNPJ ou telefone..." value={busca} onChange={(e) => setBusca(e.target.value)} className="sm:max-w-xl" />

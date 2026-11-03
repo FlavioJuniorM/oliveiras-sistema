@@ -15,7 +15,13 @@ export default {
           DEFAULT: "#111111",
           soft: "#1C1C1C",
         },
-        gold: "#D4A72C",
+        // Dourado da marca para fundos/bordas; "texto" é a versão escura legível
+        // (contraste ≥ 5:1 sobre branco — o dourado claro tinha só 2,2:1)
+        gold: {
+          DEFAULT: "#D4A72C",
+          texto: "#7D5F0E",
+          light: "#E8C766",
+        },
         muted: "#6B6B6B",
         border: "#E5E5E5",
         success: "#198754",

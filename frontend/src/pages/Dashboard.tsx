@@ -26,7 +26,7 @@ export function Dashboard() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-2 lg:grid-cols-7 gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-7">
         <KpiCard rotulo="Vendas hoje" valor={formatarMoeda(dados.vendasHoje)} destaque />
         <KpiCard rotulo="Recebido hoje" valor={formatarMoeda(dados.recebidoHoje)} tom="sucesso" />
         <KpiCard rotulo="A receber" valor={formatarMoeda(dados.totalAReceber)} tom="alerta" />
@@ -39,7 +39,7 @@ export function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card>
           <CardTitulo>Vendas do mês</CardTitulo>
-          <p className="font-display text-3xl text-gold mt-2 tracking-wide">
+          <p className="font-display text-3xl text-gold-texto mt-2 tracking-wide">
             {formatarMoeda(dados.vendasMes)}
           </p>
           <CardSubtitulo className="mt-1">
