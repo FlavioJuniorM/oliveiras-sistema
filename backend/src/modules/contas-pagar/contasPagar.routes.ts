@@ -4,6 +4,7 @@ import { autenticar } from "../../middlewares/autenticacao";
 import { somentePapel } from "../../middlewares/permissoes";
 import {
   criarContaPagar,
+  criarContaPagarDividida,
   excluirLancamentoContaPagar,
   ErroContaPagar,
   listarContasPagar,
@@ -39,7 +40,11 @@ const criarContaPagarSchema = z.object({
   valor: z.number().positive(),
   dataLancamento: z.coerce.date(),
   vencimento: z.coerce.date(),
+  // Boleto dividido em dois: o valor é repartido ao meio entre as duas datas
+  segundoVencimento: z.coerce.date().optional(),
   observacoes: z.string().optional(),
+}).refine((d) => !d.segundoVencimento || d.segundoVencimento > d.vencimento, {
+  message: "A segunda data do boleto precisa ser depois da primeira.",
 });
 
 contasPagarRouter.post("/", async (req, res) => {
@@ -48,10 +53,13 @@ contasPagarRouter.post("/", async (req, res) => {
     return res.status(400).json({ erro: validacao.error.issues[0].message });
   }
 
-  const conta = await criarContaPagar({
-    ...validacao.data,
-    criadoPorId: req.usuario!.id,
-  });
+  const { segundoVencimento, ...dados } = validacao.data;
+  if (segundoVencimento) {
+    const contas = await criarContaPagarDividida({ ...dados, segundoVencimento, criadoPorId: req.usuario!.id });
+    return res.status(201).json(contas);
+  }
+
+  const conta = await criarContaPagar({ ...dados, criadoPorId: req.usuario!.id });
   return res.status(201).json(conta);
 });
 

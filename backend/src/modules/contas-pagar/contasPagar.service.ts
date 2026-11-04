@@ -58,6 +58,48 @@ export async function criarContaPagar(input: CriarContaPagarInput) {
 }
 
 /**
+ * Boleto dividido em duas datas: lança duas contas, cada uma com metade do valor.
+ * Se o valor não divide exato, o centavo que sobra vai para a primeira parcela.
+ */
+export async function criarContaPagarDividida(
+  input: CriarContaPagarInput & { segundoVencimento: Date }
+) {
+  const { criadoPorId, segundoVencimento, descricao, valor, ...dados } = input;
+  const totalCentavos = Math.round(valor * 100);
+  const segundaCentavos = Math.floor(totalCentavos / 2);
+  const parcelas = [
+    { valor: (totalCentavos - segundaCentavos) / 100, vencimento: dados.vencimento, sufixo: "1/2" },
+    { valor: segundaCentavos / 100, vencimento: segundoVencimento, sufixo: "2/2" },
+  ];
+
+  const contas = await prisma.$transaction(
+    parcelas.map((p) =>
+      prisma.contaPagar.create({
+        data: {
+          ...dados,
+          descricao: `${descricao} (boleto ${p.sufixo})`,
+          valor: p.valor,
+          vencimento: p.vencimento,
+          status: "PENDENTE",
+        },
+      })
+    )
+  );
+
+  for (const conta of contas) {
+    await registrarLog({
+      usuarioId: criadoPorId,
+      acao: "CRIOU_CONTA_PAGAR",
+      entidade: "conta_pagar",
+      entidadeId: conta.id,
+      detalhes: `Lançou conta a pagar de ${conta.fornecedor} — R$ ${conta.valor} (venc. ${formatarDataCalendario(conta.vencimento)}) — boleto dividido em 2`,
+    });
+  }
+
+  return contas;
+}
+
+/**
  * Registra a baixa (pagamento) de uma conta a pagar — total ou parcial.
  * Igual ao módulo de contas a receber, mantém o histórico em vez de apagar.
  */
