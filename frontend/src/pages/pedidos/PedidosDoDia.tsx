@@ -22,6 +22,12 @@ const STATUS_CONFIG: Record<string, { titulo: string; descricao: string; fundo: 
   ENTREGUE: { titulo: "Entregues", descricao: "Finalizados hoje", fundo: "bg-black/5" },
 };
 
+/** "2026-11-10" → "ter 10/11" */
+function diaCurto(dia: string) {
+  const data = new Date(`${dia.slice(0, 10)}T12:00:00Z`);
+  return `${data.toLocaleDateString("pt-BR", { weekday: "short", timeZone: "UTC" }).replace(".", "")} ${data.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "UTC" })}`;
+}
+
 function horaCurta(instante: string) {
   return new Date(instante).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
@@ -250,16 +256,20 @@ export function PedidosDoDia() {
   // Hoje: comandas do dia + em aberto de dias anteriores. Outro dia: histórico.
   const [dia, setDia] = useState(dataLocalISO());
   const ehHoje = dia === dataLocalISO();
+  const ehFuturo = dia > dataLocalISO();
+  const [agendados, setAgendados] = useState<{ data: string; quantidade: number }[]>([]);
   useEffect(() => {
     setFiltro(dia === dataLocalISO() ? "ANDAMENTO" : "TODOS");
   }, [dia]);
 
   const carregarPedidos = useCallback(async () => {
     try {
-      const [resposta, configuracao] = await Promise.all([
+      const [resposta, configuracao, proximos] = await Promise.all([
         api<Pedido[]>(`/pedidos/painel?data=${dia}`),
         api<{ toleranciaPesagemPercentual: number }>("/configuracoes/pesagem"),
+        api<{ data: string; quantidade: number }[]>("/pedidos/agendados").catch(() => []),
       ]);
+      setAgendados(proximos);
       setPedidos(resposta.filter((pedido) => pedido.statusPagamento !== "CANCELADO").map(prepararPedidoParaExibicao));
       setToleranciaPesagemPercentual(configuracao.toleranciaPesagemPercentual);
       setErro("");
@@ -297,10 +307,12 @@ export function PedidosDoDia() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div><p className="hidden text-sm text-muted sm:block">Totem de produção · atualização automática a cada 10 segundos</p><p className="mt-2 hidden text-sm text-muted sm:block">Abra uma comanda para pesar os cortes. O valor só aparece depois da pesagem.</p></div>
-        <div className="flex items-end gap-2"><div className="flex flex-col gap-1"><label htmlFor="dia-painel" className="text-xs font-semibold uppercase tracking-wide text-muted">Dia</label><input id="dia-painel" type="date" value={dia} max={dataLocalISO()} onChange={(e) => e.target.value && setDia(e.target.value)} className="h-11 rounded-lg border border-border bg-white px-3 text-sm text-ink" /></div>{!ehHoje && <Button variante="secundaria" className="h-11" onClick={() => setDia(dataLocalISO())}>Voltar para hoje</Button>}<Link to="/pedidos/novo" className="hidden sm:block"><Button tamanho="grande" className="w-full xl:w-auto">Novo pedido</Button></Link></div>
+        <div className="flex items-end gap-2"><div className="flex flex-col gap-1"><label htmlFor="dia-painel" className="text-xs font-semibold uppercase tracking-wide text-muted">Dia</label><input id="dia-painel" type="date" value={dia} onChange={(e) => e.target.value && setDia(e.target.value)} className="h-11 rounded-lg border border-border bg-white px-3 text-sm text-ink" /></div>{!ehHoje && <Button variante="secundaria" className="h-11" onClick={() => setDia(dataLocalISO())}>Voltar para hoje</Button>}<Link to="/pedidos/novo" className="hidden sm:block"><Button tamanho="grande" className="w-full xl:w-auto">Novo pedido</Button></Link></div>
       </div>
       <div className="sticky top-0 z-10 -mx-4 flex gap-2 overflow-x-auto bg-background px-4 py-2 sm:static sm:mx-0 sm:grid sm:grid-cols-4 sm:overflow-visible sm:bg-transparent sm:px-0 sm:py-0 xl:grid-cols-8" role="tablist" aria-label="Filtrar comandas por etapa"><Filtro titulo="Em andamento" quantidade={pedidos.filter((pedido) => pedido.statusOperacao !== "ENTREGUE").length} ativo={filtro === "ANDAMENTO"} onClick={() => setFiltro("ANDAMENTO")} />{FLUXO.map((status) => <Filtro key={status} titulo={STATUS_CONFIG[status].titulo} quantidade={pedidos.filter((pedido) => (pedido.statusOperacao || "RECEBIDO") === status).length} ativo={filtro === status} onClick={() => setFiltro(status)} />)}<Filtro titulo="Todos" quantidade={pedidos.length} ativo={filtro === "TODOS"} onClick={() => setFiltro("TODOS")} /></div>
-      {!ehHoje && <div className="rounded-lg border border-gold/40 bg-gold/10 px-4 py-3 text-sm font-semibold text-ink">Histórico de {dia.split("-").reverse().join("/")}: comandas anotadas neste dia.</div>}
+      {ehFuturo && <div className="rounded-lg border border-primary/30 bg-primary/[0.06] px-4 py-3 text-sm font-semibold text-ink">📅 Encomendas para {diaCurto(dia)}: pedidos já anotados para este dia.</div>}
+      {!ehHoje && !ehFuturo && <div className="rounded-lg border border-gold/40 bg-gold/10 px-4 py-3 text-sm font-semibold text-ink">Histórico de {dia.split("-").reverse().join("/")}: comandas anotadas neste dia.</div>}
+      {ehHoje && agendados.length > 0 && <div className="flex flex-col gap-2 rounded-lg border border-primary/25 bg-primary/[0.05] px-4 py-3 sm:flex-row sm:items-center"><p className="shrink-0 text-sm font-semibold text-ink">📅 Encomendas para os próximos dias:</p><div className="flex flex-wrap gap-2">{agendados.slice(0, 8).map((a) => <button key={a.data} type="button" onClick={() => setDia(a.data)} className="min-h-9 rounded-full border border-primary/30 bg-white px-3 text-sm font-semibold text-primary hover:bg-primary hover:text-white">{diaCurto(a.data)} · {a.quantidade} {a.quantidade === 1 ? "pedido" : "pedidos"}</button>)}</div></div>}
       {erro && <div className="rounded-lg bg-danger/10 px-4 py-3 text-sm text-danger">{erro}</div>}
       {carregando && <Card><p className="text-sm text-muted">Carregando comandas...</p></Card>}
       {!carregando && pedidosVisiveis.length === 0 && <Card className="py-12 text-center"><p className="font-display text-2xl uppercase tracking-wide text-ink">{filtro === "ANDAMENTO" ? "Tudo em dia" : "Nenhuma comanda aqui"}</p><p className="mt-2 text-sm text-muted">Os novos pedidos aparecerão automaticamente neste painel.</p></Card>}
@@ -310,10 +322,12 @@ export function PedidosDoDia() {
           const config = STATUS_CONFIG[status] || STATUS_CONFIG.RECEBIDO;
           const cortesFeitos = pedido.itens.filter((item) => item.statusPreparo === "CORTADO").length;
           const aguardando = cortesFeitos < pedido.itens.length;
-          const emAbertoDesde = ehHoje && dataLocalISO(new Date(pedido.criadoEm)) !== dia && status !== "ENTREGUE";
+          const encomenda = pedido.dataAgendada ? pedido.dataAgendada.slice(0, 10) : null;
+          const emAbertoDesde = ehHoje && !encomenda && dataLocalISO(new Date(pedido.criadoEm)) !== dia && status !== "ENTREGUE";
           return <div key={pedido.id} onClick={() => setComandaAberta(pedido)} className="flex cursor-pointer flex-col overflow-hidden rounded-card border border-border bg-surface text-left shadow-card transition hover:border-primary">
             <div className={`flex items-center justify-between gap-2 px-4 py-2.5 ${config.fundo}`}><div className="flex min-w-0 items-baseline gap-2"><p className="font-display text-xl tracking-wide text-ink">{pedido.numero.slice(-6)}</p><p className="text-xs text-muted">{ehHoje && !emAbertoDesde ? horaCurta(pedido.criadoEm) : formatarDataHora(pedido.criadoEm)}</p></div><StatusBadge status={status} /></div>
             <div className="flex-1 px-4 py-3">
+              {encomenda && <p className="mb-2 mr-1 inline-block rounded bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary">📅 Encomenda para {diaCurto(encomenda)}</p>}
               {emAbertoDesde && <p className="mb-2 inline-block rounded bg-danger/10 px-2 py-0.5 text-xs font-bold text-danger">Em aberto desde {new Date(pedido.criadoEm).toLocaleDateString("pt-BR")}</p>}
               <div className="flex items-start justify-between gap-3"><p className="min-w-0 truncate text-base font-semibold text-ink">{nomeDoCliente(pedido)}</p>{aguardando ? <p className="whitespace-nowrap text-xs font-semibold text-gold-texto">{cortesFeitos}/{pedido.itens.length} pesados</p> : <p className="whitespace-nowrap font-bold text-ink">{formatarMoeda(pedido.total)}</p>}</div>
               <ul className="mt-2 space-y-1 text-sm">{pedido.itens.map((item) => <li key={item.id} className="flex items-baseline justify-between gap-2"><span className="min-w-0 text-ink"><span className={item.statusPreparo === "CORTADO" ? "text-success" : "text-muted"} aria-hidden="true">{item.statusPreparo === "CORTADO" ? "✓ " : "○ "}</span><span className="font-semibold">{item.produto?.nome}</span> <span className="text-muted">· {textoPedido(item)}{item.statusPreparo === "CORTADO" ? ` → ${textoReal(item)}` : ""}</span>{item.observacao && <span className="ml-1 rounded bg-gold/15 px-1.5 py-0.5 text-xs font-semibold text-gold-texto">{item.observacao}</span>}</span>{item.statusPreparo === "CORTADO" && <span className="whitespace-nowrap text-xs text-muted">{formatarMoeda(item.subtotal)}</span>}</li>)}</ul>
@@ -399,7 +413,7 @@ function ModalComanda({ pedido, toleranciaPesagemPercentual, onFechar, onAtualiz
   const aberta = status === "RECEBIDO" || status === "EM_PREPARO";
 
   return <div className="fixed inset-0 z-40 overflow-y-auto bg-black/50 px-3 py-5 sm:px-6"><div className="mx-auto max-w-4xl overflow-hidden rounded-card bg-surface shadow-2xl">
-    <div className={`flex items-start justify-between px-6 py-5 ${config.fundo}`}><div><p className="font-display text-2xl text-ink sm:text-3xl">Comanda {pedido.numero}</p><p className="mt-1 text-sm text-muted">{nomeDoCliente(pedido)} · {formatarDataHora(pedido.criadoEm)}</p></div><button type="button" onClick={onFechar} className="text-2xl text-muted hover:text-ink" aria-label="Fechar">×</button></div>
+    <div className={`flex items-start justify-between px-6 py-5 ${config.fundo}`}><div><p className="font-display text-2xl text-ink sm:text-3xl">Comanda {pedido.numero}</p><p className="mt-1 text-sm text-muted">{nomeDoCliente(pedido)} · {formatarDataHora(pedido.criadoEm)}</p>{pedido.dataAgendada && <p className="mt-2 inline-block rounded bg-primary/10 px-2 py-0.5 text-sm font-bold text-primary">📅 Encomenda para {diaCurto(pedido.dataAgendada)}</p>}</div><button type="button" onClick={onFechar} className="text-2xl text-muted hover:text-ink" aria-label="Fechar">×</button></div>
     <div className="p-6">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background p-4"><div className="flex flex-wrap items-center gap-3"><StatusBadge status={status} /><p className="text-sm text-ink">{aberta ? "Corte cada item e informe o peso da balança. O valor aparece conforme os itens são pesados." : "Comanda fechada."}</p></div><p className="text-sm font-semibold text-ink">{pesados}/{pedido.itens.length} pesados</p></div>
       {aberta && <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><p className="text-sm text-muted">{editando ? "Inclua, altere ou remova carnes. Itens já pesados: use “Corrigir peso” antes." : "Cliente ligou e quer mudar algo?"}</p><Button variante={editando ? "primaria" : "secundaria"} onClick={() => setEditando((atual) => !atual)}>{editando ? "Concluir edição" : "✏️ Editar itens"}</Button></div>}

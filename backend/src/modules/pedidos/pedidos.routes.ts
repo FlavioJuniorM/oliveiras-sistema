@@ -17,6 +17,7 @@ import {
   alterarPrecoItemPedido,
   removerItemPedido,
   listarPainelDoDia,
+  listarAgendados,
   listarAReceber,
 } from "./pedidos.service";
 
@@ -52,6 +53,7 @@ const criarPedidoSchema = z.object({
     .default([]),
   valorAPrazo: z.number().nonnegative().optional(),
   vencimento: z.coerce.date().optional(),
+  dataAgendada: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data do pedido inválida.").optional(),
 });
 
 // Fluxo principal do funcionário (seção 15): criar pedido já calculado e finalizado
@@ -81,6 +83,11 @@ pedidosRouter.post("/", async (req, res) => {
 // Painel "Pedidos do Dia" (hoje = do dia + em aberto de dias anteriores)
 pedidosRouter.get("/painel", async (req, res) => {
   return res.json(await listarPainelDoDia(typeof req.query.data === "string" ? req.query.data : undefined));
+});
+
+// Encomendas para os próximos dias (quantas por data)
+pedidosRouter.get("/agendados", async (_req, res) => {
+  return res.json(await listarAgendados());
 });
 
 // Contas a receber: só vendas a prazo com saldo em aberto

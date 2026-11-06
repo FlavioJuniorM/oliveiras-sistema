@@ -5,7 +5,13 @@ import { Cliente, Produto, UnidadePedido } from "../../types";
 import { Card, CardTitulo } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
-import { formatarQuantidadePedido } from "../../lib/formatadores";
+import { dataLocalISO, formatarDataCalendario, formatarQuantidadePedido } from "../../lib/formatadores";
+
+function amanhaISO() {
+  const amanha = new Date();
+  amanha.setDate(amanha.getDate() + 1);
+  return dataLocalISO(amanha);
+}
 import { abrirJanelaImpressao, imprimirNaJanela, imprimirPedidoTermico } from "../../lib/impressao";
 
 interface ItemCarrinho {
@@ -53,7 +59,10 @@ export function NovoPedido() {
   const [salvandoCliente, setSalvandoCliente] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
-  const [pedidoCriado, setPedidoCriado] = useState<{ id: string; numero: string } | null>(null);
+  const [pedidoCriado, setPedidoCriado] = useState<{ id: string; numero: string; dataAgendada?: string | null } | null>(null);
+  // Pedido para hoje (padrão) ou encomenda para uma data futura
+  const [paraFuturo, setParaFuturo] = useState(false);
+  const [dataFutura, setDataFutura] = useState("");
   const [avisoImpressao, setAvisoImpressao] = useState("");
 
   useEffect(() => {
@@ -145,15 +154,18 @@ export function NovoPedido() {
     setAvisoImpressao("");
     if (!clienteSelecionado) return setErro("Selecione o cliente da comanda ou cadastre-o antes de continuar.");
     if (carrinho.length === 0) return setErro("Adicione pelo menos uma carne ao pedido.");
+    if (paraFuturo && !dataFutura) return setErro("Escolha a data do pedido (data futura).");
+    if (paraFuturo && dataFutura <= dataLocalISO()) return setErro("A data futura precisa ser a partir de amanhã. Para hoje, marque “Pedido para hoje”.");
     // Abre a janela já no clique, senão o navegador bloqueia a impressão
     const janela = imprimir ? abrirJanelaImpressao() : null;
     setEnviando(true);
     try {
-      const pedido = await api<{ id: string; numero: string }>("/pedidos", {
+      const pedido = await api<{ id: string; numero: string; dataAgendada?: string | null }>("/pedidos", {
         method: "POST",
         body: {
           clienteId: clienteSelecionado.id,
           itens: carrinho.map((item) => ({ produtoId: item.produto.id, pesoOuQtd: item.pesoOuQtd, unidadePedido: item.unidadePedido, observacao: item.observacao || undefined })),
+          dataAgendada: paraFuturo ? dataFutura : undefined,
         },
       });
       setPedidoCriado(pedido);
@@ -177,10 +189,12 @@ export function NovoPedido() {
     setAvisoImpressao("");
     setBuscaProduto("");
     setErro("");
+    setParaFuturo(false);
+    setDataFutura("");
   }
 
   if (pedidoCriado) {
-    return <div className="mx-auto max-w-xl"><Card className="flex flex-col items-center gap-4 py-10 text-center"><div className="flex h-16 w-16 items-center justify-center rounded-full bg-success/10 text-3xl font-bold text-success">✓</div><div><p className="text-sm text-muted">Comanda registrada e enviada para a fila de cortes</p><p className="mt-1 font-display text-4xl tracking-wide text-ink">{pedidoCriado.numero}</p><p className="mt-2 text-sm text-muted">Os açougueiros já podem abrir esta comanda em “Pedidos do dia”.</p></div>{avisoImpressao && <p className="w-full rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{avisoImpressao}</p>}<Button variante="secundaria" className="w-full" onClick={() => { setAvisoImpressao(""); imprimirPedidoTermico(pedidoCriado.id, "corte").catch((e) => setAvisoImpressao(e instanceof Error ? e.message : "Não foi possível imprimir.")); }}>Imprimir pedido para os cortes</Button><div className="flex w-full flex-col gap-3 sm:flex-row"><Button className="flex-1" onClick={() => navegar("/pedidos")}>Acompanhar pedido</Button><Button variante="secundaria" className="flex-1" onClick={limparPedido}>Registrar outro pedido</Button></div></Card></div>;
+    return <div className="mx-auto max-w-xl"><Card className="flex flex-col items-center gap-4 py-10 text-center"><div className="flex h-16 w-16 items-center justify-center rounded-full bg-success/10 text-3xl font-bold text-success">✓</div><div><p className="text-sm text-muted">Comanda registrada e enviada para a fila de cortes</p><p className="mt-1 font-display text-4xl tracking-wide text-ink">{pedidoCriado.numero}</p>{pedidoCriado.dataAgendada ? <p className="mt-3 rounded-lg bg-primary/10 px-3 py-2 text-sm font-semibold text-primary">📅 Encomenda para {formatarDataCalendario(pedidoCriado.dataAgendada)}. Ela aparece em “Pedidos do dia” nesse dia — e já dá para ver escolhendo a data no painel.</p> : <p className="mt-2 text-sm text-muted">Os açougueiros já podem abrir esta comanda em “Pedidos do dia”.</p>}</div>{avisoImpressao && <p className="w-full rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{avisoImpressao}</p>}<Button variante="secundaria" className="w-full" onClick={() => { setAvisoImpressao(""); imprimirPedidoTermico(pedidoCriado.id, "corte").catch((e) => setAvisoImpressao(e instanceof Error ? e.message : "Não foi possível imprimir.")); }}>Imprimir pedido para os cortes</Button><div className="flex w-full flex-col gap-3 sm:flex-row"><Button className="flex-1" onClick={() => navegar("/pedidos")}>Acompanhar pedido</Button><Button variante="secundaria" className="flex-1" onClick={limparPedido}>Registrar outro pedido</Button></div></Card></div>;
   }
 
   return (
@@ -203,6 +217,15 @@ export function NovoPedido() {
           <div className="flex items-center justify-between gap-3"><CardTitulo>3. Conferir anotação</CardTitulo><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">Antes do corte</span></div>
           <div className="mt-3 divide-y divide-border">{carrinho.length === 0 && <p className="py-4 text-sm text-muted">Os itens anotados aparecerão aqui.</p>}{carrinho.map((item) => <div key={chaveItem(item)} className="flex items-start justify-between gap-3 py-3"><div><p className="font-semibold text-ink">{item.produto.nome}</p><p className="mt-1 text-sm text-muted">Pediu: <strong className="text-ink">{formatarQuantidadePedido(item.pesoOuQtd, item.unidadePedido)}</strong></p>{item.observacao && <p className="mt-1 inline-block rounded bg-gold/15 px-2 py-0.5 text-xs font-semibold text-ink">» {item.observacao}</p>}<button type="button" onClick={() => abrirPesagem(item.produto, item)} className="mt-1 text-xs font-semibold text-primary">Editar pedido</button></div><button type="button" onClick={() => setCarrinho((atual) => atual.filter((atualItem) => chaveItem(atualItem) !== chaveItem(item)))} className="text-xs font-semibold text-danger">Remover</button></div>)}</div>
           <div className="mt-4 border-t border-border pt-4"><p className="rounded-lg bg-gold/10 px-3 py-2 text-xs text-ink">Sem valor nesta etapa. Depois do corte, o peso da balança de cada item gera o valor da comanda.</p></div>
+          <fieldset className="mt-4 border-t border-border pt-4">
+            <legend className="sr-only">Para quando é o pedido?</legend>
+            <p className="text-sm font-semibold text-ink">Para quando é o pedido?</p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button type="button" aria-pressed={!paraFuturo} onClick={() => setParaFuturo(false)} className={`min-h-12 rounded-lg border-2 px-3 text-sm font-semibold transition ${!paraFuturo ? "border-primary bg-primary text-white" : "border-border bg-white text-ink hover:border-primary"}`}>Pedido para hoje</button>
+              <button type="button" aria-pressed={paraFuturo} onClick={() => { setParaFuturo(true); if (!dataFutura) setDataFutura(amanhaISO()); }} className={`min-h-12 rounded-lg border-2 px-3 text-sm font-semibold transition ${paraFuturo ? "border-primary bg-primary text-white" : "border-border bg-white text-ink hover:border-primary"}`}>📅 Data futura</button>
+            </div>
+            {paraFuturo && <div className="mt-3 rounded-lg bg-primary/[0.05] p-3"><Input label="Data do pedido" type="date" min={amanhaISO()} value={dataFutura} onChange={(e) => setDataFutura(e.target.value)} required />{dataFutura && dataFutura > dataLocalISO() && <p className="mt-2 text-xs text-ink">Fica guardado no sistema e aparece em <strong>Pedidos do dia</strong> no dia <strong>{formatarDataCalendario(dataFutura)}</strong>.</p>}</div>}
+          </fieldset>
           {erro && <p className="mt-4 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
           <Button className="mt-4 w-full" tamanho="grande" disabled={enviando || !clienteSelecionado || carrinho.length === 0} onClick={() => salvarComanda(true)}>{enviando ? "Registrando..." : "Salvar e imprimir para o balcão"}</Button><Button variante="secundaria" className="mt-2 w-full" disabled={enviando || !clienteSelecionado || carrinho.length === 0} onClick={() => salvarComanda(false)}>Salvar sem imprimir</Button><p className="mt-2 text-center text-xs text-muted">Impressão térmica 58 mm, sem valores — para os açougueiros.</p>
         </Card>

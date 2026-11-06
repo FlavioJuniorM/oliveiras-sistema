@@ -16,6 +16,7 @@ const MAIS_ADMIN = [
   { rotulo: "Fechamento de Caixa", para: "/financeiro/caixa" },
   { rotulo: "Contas a Receber", para: "/financeiro/contas-a-receber" },
   { rotulo: "Contas a Pagar", para: "/financeiro/contas-a-pagar" },
+  { rotulo: "Fornecedores", para: "/financeiro/fornecedores" },
   { rotulo: "Relatórios", para: "/relatorios" },
   { rotulo: "Usuários", para: "/usuarios" },
   { rotulo: "Configurações", para: "/configuracoes" },

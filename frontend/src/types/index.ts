@@ -94,6 +94,8 @@ export interface Pedido {
   statusPagamento: StatusPagamentoPedido;
   statusOperacao: StatusOperacaoPedido;
   vencimento?: string | null;
+  /** Encomenda para outro dia (AAAA-MM-DD...). Vazio = pedido do dia em que foi anotado. */
+  dataAgendada?: string | null;
   criadoEm: string;
   itens: PedidoItem[];
   pagamentos?: { id: string; forma: string; valor: string | number; criadoEm: string }[];

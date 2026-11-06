@@ -14,6 +14,7 @@ import { publicoRouter } from "./modules/publico/publico.routes";
 import { configuracoesRouter } from "./modules/configuracoes/configuracoes.routes";
 import { motoboysRouter } from "./modules/motoboys/motoboys.routes";
 import { caixaRouter } from "./modules/caixa/caixa.routes";
+import { fornecedoresRouter } from "./modules/fornecedores/fornecedores.routes";
 
 export const app = express();
 // Atrás do proxy da Vercel: necessário para enxergar o IP real do cliente
@@ -54,6 +55,7 @@ app.use("/contas-pagar", contasPagarRouter);
 app.use("/relatorios", relatoriosRouter);
 app.use("/motoboys", motoboysRouter);
 app.use("/caixa", caixaRouter);
+app.use("/fornecedores", fornecedoresRouter);
 
 // MVP completo (seção 21). Próximas melhorias possíveis: estoque, integração fiscal
 // (NF-e/NFC-e), integração com Pix, WhatsApp e outras automações.

@@ -146,6 +146,7 @@ const ESTILO_TERMICA_58 = `
     .endereco { margin-top: 2px; font-size: 10px; }
     .tipo { margin-top: 4px; font-weight: 700; font-size: 13px; letter-spacing: 1px; }
     .numero { font-size: 22px; font-weight: 700; margin-top: 2px; }
+    .agendado { margin-top: 3px; padding: 2px 0; border: 2px solid #000; text-align: center; font-weight: 700; font-size: 13px; }
     .linha { display: flex; justify-content: space-between; gap: 8px; line-height: 1.35; }
     .linha > :last-child { text-align: right; }
     .separador { border-top: 1px dashed #000; margin: 7px 0; }
@@ -225,6 +226,7 @@ export async function gerarComandaTermicaHtml(pedidoId: string, tipo: TipoImpres
       ${telefone ? `<div>Tel: ${escaparHtml(telefone)}</div>` : ""}
       ${endereco ? `<div>Entrega: ${escaparHtml(endereco)}</div>` : ""}
       <div>Anotado: ${escaparHtml(formatarDataHora(pedido.criadoEm))}</div>
+      ${pedido.dataAgendada ? `<div class="agendado">PEDIDO PARA ${escaparHtml(formatarDataCalendario(pedido.dataAgendada))}</div>` : ""}
       ${pedido.observacoesCliente ? `<div>Obs.: ${escaparHtml(pedido.observacoesCliente)}</div>` : ""}
     </div>
     <div class="separador"></div>

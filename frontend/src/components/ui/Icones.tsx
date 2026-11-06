@@ -79,3 +79,6 @@ export const IconeSetaEsq = (p: PropsIcone) => (
 export const IconeSetaDir = (p: PropsIcone) => (
   <Base {...p}><path d="m9 18 6-6-6-6" /></Base>
 );
+export const IconeCaminhao = (p: PropsIcone) => (
+  <Base {...p}><path d="M3 6h11v10H3zM14 9h4l3 3.5V16h-7" /><circle cx="7" cy="17.5" r="1.8" /><circle cx="17.5" cy="17.5" r="1.8" /></Base>
+);

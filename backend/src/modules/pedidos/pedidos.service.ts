@@ -64,6 +64,8 @@ interface CriarPedidoInput {
   emailCliente?: string;
   enderecoEntrega?: string;
   observacoesCliente?: string;
+  /** "AAAA-MM-DD" — pedido para um dia futuro */
+  dataAgendada?: string;
 }
 
 export class ErroPedido extends Error {}
@@ -98,10 +100,19 @@ export async function criarPedido(input: CriarPedidoInput) {
     emailCliente,
     enderecoEntrega,
     observacoesCliente,
+    dataAgendada,
   } = input;
 
   if (itens.length === 0) {
     throw new ErroPedido("O pedido precisa ter ao menos um item.");
+  }
+
+  // Pedido para outro dia: só datas futuras (hoje é o padrão, sem data)
+  let dataAgendadaCalendario: Date | null = null;
+  if (dataAgendada) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataAgendada)) throw new ErroPedido("Data do pedido inválida.");
+    if (dataAgendada <= dataNaLoja()) throw new ErroPedido("Para data futura, escolha um dia a partir de amanhã. Para hoje, marque “Pedido para hoje”.");
+    dataAgendadaCalendario = new Date(`${dataAgendada}T00:00:00Z`);
   }
 
   // Fluxo da comanda: ANOTAR → CORTAR/PESAR → FECHAR.
@@ -158,6 +169,7 @@ export async function criarPedido(input: CriarPedidoInput) {
       data: {
         numero,
         tokenAcompanhamento,
+        dataAgendada: dataAgendadaCalendario,
         clienteId,
         usuarioId,
         canal,
@@ -273,20 +285,40 @@ export async function listarPainelDoDia(data?: string) {
   const hoje = dataNaLoja();
   const dia = data && /^\d{4}-\d{2}-\d{2}$/.test(data) ? data : hoje;
   const { inicio, fim } = periodoNaLoja(dia, dia);
+  const diaCalendario = new Date(`${dia}T00:00:00Z`);
 
   const where: Prisma.PedidoWhereInput =
     dia === hoje
       ? {
           statusPagamento: { not: "CANCELADO" },
+          // Encomendas para dias futuros só aparecem no dia delas
+          AND: [{ OR: [{ dataAgendada: null }, { dataAgendada: { lte: diaCalendario } }] }],
           OR: [
-            { criadoEm: { gte: inicio } },
+            { criadoEm: { gte: inicio }, dataAgendada: null },
+            { dataAgendada: diaCalendario },
             { statusOperacao: { not: "ENTREGUE" } },
             { statusHistorico: { some: { status: "ENTREGUE", criadoEm: { gte: inicio } } } },
           ],
         }
-      : { statusPagamento: { not: "CANCELADO" }, criadoEm: { gte: inicio, lte: fim } };
+      : {
+          statusPagamento: { not: "CANCELADO" },
+          OR: [{ dataAgendada: diaCalendario }, { dataAgendada: null, criadoEm: { gte: inicio, lte: fim } }],
+        };
 
   return prisma.pedido.findMany({ where, include: INCLUDE_LISTA_PEDIDOS, orderBy: { criadoEm: "desc" }, take: 500 });
+}
+
+/** Encomendas dos próximos dias: quantas comandas por data. */
+export async function listarAgendados() {
+  const amanha = new Date(`${dataNaLoja()}T00:00:00Z`);
+  amanha.setUTCDate(amanha.getUTCDate() + 1);
+  const grupos = await prisma.pedido.groupBy({
+    by: ["dataAgendada"],
+    where: { statusPagamento: { not: "CANCELADO" }, dataAgendada: { gte: amanha } },
+    _count: { _all: true },
+    orderBy: { dataAgendada: "asc" },
+  });
+  return grupos.map((g) => ({ data: g.dataAgendada!.toISOString().slice(0, 10), quantidade: g._count._all }));
 }
 
 /** Contas a receber de verdade: vendas a prazo com saldo em aberto (de qualquer data). */
