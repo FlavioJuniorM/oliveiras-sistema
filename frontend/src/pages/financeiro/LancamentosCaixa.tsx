@@ -17,6 +17,14 @@ interface LancamentoCaixa {
   observacoes: string | null;
 }
 
+/** Comandas do sistema entregues/concluídas no dia (pedidos delivery e balcão). */
+interface PedidosDoDiaCaixa {
+  data: string;
+  quantidade: number;
+  total: number;
+  pedidos: { id: string; numero: string; cliente: string; tipoEntrega: string; total: number; entregueEm: string }[];
+}
+
 const DIAS_SEMANA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const FORMAS = [
@@ -41,6 +49,7 @@ export function LancamentosCaixa() {
   const [mes, setMes] = useState(Number(hoje.slice(5, 7)) - 1);
   const [diaSelecionado, setDiaSelecionado] = useState(hoje);
   const [lancamentos, setLancamentos] = useState<LancamentoCaixa[]>([]);
+  const [entregues, setEntregues] = useState<PedidosDoDiaCaixa[]>([]);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [formulario, setFormulario] = useState<{ lancamento?: LancamentoCaixa; data: string } | null>(null);
@@ -53,7 +62,12 @@ export function LancamentosCaixa() {
     setCarregando(true);
     setErro("");
     try {
-      setLancamentos(await api<LancamentoCaixa[]>(`/caixa/lancamentos?mes=${chaveMes}`));
+      const [manuais, pedidosEntregues] = await Promise.all([
+        api<LancamentoCaixa[]>(`/caixa/lancamentos?mes=${chaveMes}`),
+        api<PedidosDoDiaCaixa[]>(`/caixa/pedidos-entregues?mes=${chaveMes}`),
+      ]);
+      setLancamentos(manuais);
+      setEntregues(pedidosEntregues);
     } catch (e) {
       setErro(e instanceof ErroApi ? e.message : "Não foi possível carregar os lançamentos do caixa.");
     } finally {
@@ -66,15 +80,17 @@ export function LancamentosCaixa() {
   }, [carregar]);
 
   const porDia = useMemo(() => new Map(lancamentos.map((l) => [l.data, l])), [lancamentos]);
+  const pedidosPorDia = useMemo(() => new Map(entregues.map((d) => [d.data, d])), [entregues]);
 
   const totaisMes = useMemo(
     () =>
       lancamentos.reduce(
-        (soma, l) => ({ dinheiro: soma.dinheiro + l.dinheiro, pix: soma.pix + l.pix, cartoes: soma.cartoes + l.cartoes, total: soma.total + l.total }),
-        { dinheiro: 0, pix: 0, cartoes: 0, total: 0 }
+        (soma, l) => ({ ...soma, dinheiro: soma.dinheiro + l.dinheiro, pix: soma.pix + l.pix, cartoes: soma.cartoes + l.cartoes, total: soma.total + l.total }),
+        { dinheiro: 0, pix: 0, cartoes: 0, pedidos: entregues.reduce((soma, d) => soma + d.total, 0), total: entregues.reduce((soma, d) => soma + d.total, 0) }
       ),
-    [lancamentos]
+    [lancamentos, entregues]
   );
+  const quantidadePedidosMes = entregues.reduce((soma, d) => soma + d.quantidade, 0);
 
   const primeiroDiaSemana = new Date(Date.UTC(ano, mes, 1)).getUTCDay();
   const diasNoMes = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
@@ -117,6 +133,7 @@ export function LancamentosCaixa() {
   }
 
   const lancamentoDoDia = porDia.get(diaSelecionado);
+  const pedidosDoDia = pedidosPorDia.get(diaSelecionado);
   const diaFuturo = diaSelecionado > hoje;
 
   return (
@@ -124,7 +141,7 @@ export function LancamentosCaixa() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 id="titulo-lancamentos-caixa" className="font-display text-2xl uppercase text-ink sm:text-3xl">Lançamentos do caixa da loja</h2>
-          <p className="mt-1 text-sm text-muted">Valores do sistema de caixa, lançados à mão. Escolha o dia no calendário para ver, alterar ou excluir.</p>
+          <p className="mt-1 text-sm text-muted">Dinheiro, Pix e cartões do caixa da loja (lançados à mão) + pedidos delivery entregues no sistema (somados sozinhos). Escolha o dia no calendário.</p>
         </div>
         <Button tamanho="grande" onClick={() => setFormulario({ data: diaFuturo || porDia.has(diaSelecionado) ? hoje : diaSelecionado })}>
           <IconeMais tamanho={20} />
@@ -148,15 +165,20 @@ export function LancamentosCaixa() {
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 xl:grid-cols-5">
             {FORMAS.map((forma) => (
               <div key={forma.chave} className="rounded-lg bg-background px-3 py-2.5">
                 <p className="text-xs text-muted">{forma.icone} {forma.rotulo} no mês</p>
                 <p className="whitespace-nowrap font-display text-lg text-ink sm:text-xl">{formatarMoeda(totaisMes[forma.chave])}</p>
               </div>
             ))}
-            <div className="rounded-lg bg-success/[0.09] px-3 py-2.5">
-              <p className="text-xs text-muted">Total do mês</p>
+            <div className="rounded-lg bg-primary/[0.06] px-3 py-2.5">
+              <p className="text-xs text-muted">🛵 Pedidos delivery no mês</p>
+              <p className="whitespace-nowrap font-display text-lg text-ink sm:text-xl">{formatarMoeda(totaisMes.pedidos)}</p>
+              <p className="text-[11px] text-muted">{quantidadePedidosMes} {quantidadePedidosMes === 1 ? "comanda entregue" : "comandas entregues"}</p>
+            </div>
+            <div className="col-span-2 rounded-lg bg-success/[0.09] px-3 py-2.5 sm:col-span-1">
+              <p className="text-xs text-muted">Total geral do mês</p>
               <p className="whitespace-nowrap font-display text-lg text-success sm:text-xl">{formatarMoeda(totaisMes.total)}</p>
             </div>
           </div>
@@ -169,29 +191,33 @@ export function LancamentosCaixa() {
             {celulas.map((dia, i) => {
               if (!dia) return <div key={`v${i}`} className="min-h-[3.75rem] sm:min-h-[5.5rem]" />;
               const lancamento = porDia.get(dia);
+              const pedidosDia = pedidosPorDia.get(dia);
+              const totalGeral = (lancamento?.total ?? 0) + (pedidosDia?.total ?? 0);
               const futuro = dia > hoje;
               const selecionado = dia === diaSelecionado;
               const faltando = !lancamento && !futuro;
-              const cor = lancamento ? "border-success/40 bg-success/[0.07]" : futuro ? "border-border/60 bg-background/60" : "border-border bg-white";
+              const cor = lancamento ? "border-success/40 bg-success/[0.07]" : pedidosDia ? "border-gold/50 bg-gold/[0.08]" : futuro ? "border-border/60 bg-background/60" : "border-border bg-white";
               return (
                 <button
                   key={dia}
                   type="button"
                   onClick={() => escolherDia(dia)}
                   aria-pressed={selecionado}
-                  aria-label={`Dia ${Number(dia.slice(8))}: ${lancamento ? `lançado, total ${formatarMoeda(lancamento.total)}` : futuro ? "ainda não chegou" : "sem lançamento"}`}
+                  aria-label={`Dia ${Number(dia.slice(8))}: ${totalGeral > 0 ? `total geral ${formatarMoeda(totalGeral)}${lancamento ? "" : ", caixa da loja não lançado"}` : futuro ? "ainda não chegou" : "sem lançamento"}`}
                   className={`flex min-h-[3.75rem] flex-col items-stretch rounded-lg border p-1 text-left transition sm:min-h-[5.5rem] sm:p-2 ${cor} ${selecionado ? "ring-2 ring-ink ring-offset-1" : "hover:border-ink/40"}`}
                 >
                   <span className={`flex h-6 w-6 items-center justify-center self-start rounded-full text-xs font-bold sm:text-sm ${dia === hoje ? "bg-primary text-white" : futuro ? "text-muted" : "text-ink"}`}>{Number(dia.slice(8))}</span>
-                  {lancamento && <span className="mt-auto truncate text-[10px] font-bold leading-tight text-success sm:text-xs xl:hidden">{moedaCurta(lancamento.total)}</span>}
-                  {lancamento && <span className="mt-auto hidden whitespace-nowrap text-sm font-bold text-success xl:block">{formatarMoeda(lancamento.total)}</span>}
-                  {faltando && <span className="mt-auto hidden text-[11px] text-muted sm:block">sem lançamento</span>}
+                  {totalGeral > 0 && <span className={`mt-auto truncate text-[10px] font-bold leading-tight sm:text-xs xl:hidden ${lancamento ? "text-success" : "text-gold-texto"}`}>{moedaCurta(totalGeral)}</span>}
+                  {totalGeral > 0 && <span className={`mt-auto hidden whitespace-nowrap text-sm font-bold xl:block ${lancamento ? "text-success" : "text-gold-texto"}`}>{formatarMoeda(totalGeral)}</span>}
+                  {pedidosDia && <span className="hidden truncate text-[11px] text-muted sm:block">🛵 {pedidosDia.quantidade} {pedidosDia.quantidade === 1 ? "pedido" : "pedidos"}</span>}
+                  {faltando && !pedidosDia && <span className="mt-auto hidden text-[11px] text-muted sm:block">sem lançamento</span>}
                 </button>
               );
             })}
           </div>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-            <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-success/30" />Dia lançado</span>
+            <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-success/30" />Caixa lançado</span>
+            <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded border border-gold/60 bg-gold/20" />Só pedidos (falta lançar o caixa)</span>
             <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded border border-border bg-white" />Sem lançamento</span>
             <span className="xl:hidden">Valores em reais · toque no dia para ver</span>
           </div>
@@ -200,33 +226,59 @@ export function LancamentosCaixa() {
         <div ref={detalheRef} className="h-fit scroll-mt-4 2xl:sticky 2xl:top-4">
           <Card>
             <p className="border-b border-border pb-3 font-display text-xl uppercase text-ink">{diaPorExtenso(diaSelecionado)}</p>
-            {lancamentoDoDia ? (
-              <>
-                <ul className="divide-y divide-border">
-                  {FORMAS.map((forma) => (
-                    <li key={forma.chave} className="flex items-center justify-between py-3">
-                      <span className="text-ink">{forma.icone} {forma.rotulo}</span>
-                      <strong className="text-ink">{formatarMoeda(lancamentoDoDia[forma.chave])}</strong>
-                    </li>
-                  ))}
-                </ul>
-                <div className="mt-1 flex items-center justify-between rounded-lg bg-success/[0.09] px-3 py-3">
-                  <span className="font-semibold text-ink">Total do dia</span>
-                  <span className="font-display text-2xl text-success">{formatarMoeda(lancamentoDoDia.total)}</span>
-                </div>
-                {lancamentoDoDia.observacoes && <p className="mt-3 rounded-lg bg-background px-3 py-2 text-sm text-ink">{lancamentoDoDia.observacoes}</p>}
-                <div className="mt-4 flex gap-2">
-                  <Button variante="secundaria" className="flex-1" onClick={() => setFormulario({ lancamento: lancamentoDoDia, data: lancamentoDoDia.data })}><IconeLapis tamanho={16} />Alterar</Button>
-                  <Button variante="secundaria" className="flex-1 !text-danger hover:!bg-danger/5" onClick={() => setExclusao(lancamentoDoDia)}><IconeLixeira tamanho={16} />Excluir</Button>
-                </div>
-              </>
-            ) : diaFuturo ? (
+            {diaFuturo ? (
               <p className="py-6 text-center text-sm text-muted">Este dia ainda não chegou.</p>
             ) : (
-              <div className="py-5 text-center">
-                <p className="text-sm text-muted">Nenhum valor lançado neste dia.</p>
-                <Button className="mt-4 w-full" onClick={() => setFormulario({ data: diaSelecionado })}><IconeMais tamanho={18} />Inserir dados deste dia</Button>
-              </div>
+              <>
+                {lancamentoDoDia ? (
+                  <ul className="divide-y divide-border">
+                    {FORMAS.map((forma) => (
+                      <li key={forma.chave} className="flex items-center justify-between py-3">
+                        <span className="text-ink">{forma.icone} {forma.rotulo}</span>
+                        <strong className="text-ink">{formatarMoeda(lancamentoDoDia[forma.chave])}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="mt-3 rounded-lg border border-dashed border-gold/60 bg-gold/[0.07] p-3">
+                    <p className="text-sm text-ink">Dinheiro, Pix e cartões do caixa da loja ainda não foram lançados neste dia.</p>
+                    <Button className="mt-3 w-full" onClick={() => setFormulario({ data: diaSelecionado })}><IconeMais tamanho={18} />Inserir dados deste dia</Button>
+                  </div>
+                )}
+
+                <div className="mt-1 border-t border-border py-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-ink">🛵 Pedidos delivery <span className="text-xs text-muted">({pedidosDoDia?.quantidade ?? 0} {pedidosDoDia?.quantidade === 1 ? "entregue" : "entregues"})</span></span>
+                    <strong className="text-ink">{formatarMoeda(pedidosDoDia?.total ?? 0)}</strong>
+                  </div>
+                  {pedidosDoDia && pedidosDoDia.pedidos.length > 0 && (
+                    <details className="mt-2 rounded-lg bg-background px-3 py-2 text-sm">
+                      <summary className="cursor-pointer font-semibold text-primary">Ver comandas</summary>
+                      <ul className="mt-2 divide-y divide-border">
+                        {pedidosDoDia.pedidos.map((p) => (
+                          <li key={p.id} className="flex items-center justify-between gap-3 py-1.5">
+                            <span className="min-w-0 truncate text-ink"><strong>{p.numero.slice(-6)}</strong> · {p.cliente} <span className="text-xs text-muted">· {p.tipoEntrega === "DELIVERY" ? "entrega" : "retirada"}</span></span>
+                            <span className="whitespace-nowrap font-semibold text-ink">{formatarMoeda(p.total)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                  <p className="mt-1 text-xs text-muted">Comandas do sistema entregues e concluídas neste dia (somado automaticamente).</p>
+                </div>
+
+                <div className="flex items-center justify-between rounded-lg bg-success/[0.09] px-3 py-3">
+                  <span className="font-semibold text-ink">Total geral do dia</span>
+                  <span className="font-display text-2xl text-success">{formatarMoeda((lancamentoDoDia?.total ?? 0) + (pedidosDoDia?.total ?? 0))}</span>
+                </div>
+                {lancamentoDoDia?.observacoes && <p className="mt-3 rounded-lg bg-background px-3 py-2 text-sm text-ink">{lancamentoDoDia.observacoes}</p>}
+                {lancamentoDoDia && (
+                  <div className="mt-4 flex gap-2">
+                    <Button variante="secundaria" className="flex-1" onClick={() => setFormulario({ lancamento: lancamentoDoDia, data: lancamentoDoDia.data })}><IconeLapis tamanho={16} />Alterar</Button>
+                    <Button variante="secundaria" className="flex-1 !text-danger hover:!bg-danger/5" onClick={() => setExclusao(lancamentoDoDia)}><IconeLixeira tamanho={16} />Excluir</Button>
+                  </div>
+                )}
+              </>
             )}
           </Card>
         </div>
@@ -236,6 +288,7 @@ export function LancamentosCaixa() {
         <ModalLancamento
           inicial={formulario}
           diasLancados={porDia}
+          pedidosPorDia={pedidosPorDia}
           onFechar={() => setFormulario(null)}
           onSalvo={aoSalvar}
         />
@@ -271,11 +324,13 @@ function Modal({ titulo, onFechar, children }: { titulo: string; onFechar: () =>
 function ModalLancamento({
   inicial,
   diasLancados,
+  pedidosPorDia,
   onFechar,
   onSalvo,
 }: {
   inicial: { lancamento?: LancamentoCaixa; data: string };
   diasLancados: Map<string, LancamentoCaixa>;
+  pedidosPorDia: Map<string, PedidosDoDiaCaixa>;
   onFechar: () => void;
   onSalvo: (salvo: LancamentoCaixa, idAnterior?: string) => void;
 }) {
@@ -334,9 +389,13 @@ function ModalLancamento({
             />
           ))}
         </div>
+        <div className="rounded-lg bg-background px-4 py-3 text-sm">
+          <div className="flex items-center justify-between"><span className="text-muted">Caixa da loja (dinheiro + Pix + cartões)</span><strong className="text-ink">{formatarMoeda(total)}</strong></div>
+          <div className="mt-1 flex items-center justify-between"><span className="text-muted">🛵 Pedidos delivery entregues ({pedidosPorDia.get(data)?.quantidade ?? 0}) · automático</span><strong className="text-ink">{formatarMoeda(pedidosPorDia.get(data)?.total ?? 0)}</strong></div>
+        </div>
         <div className="flex items-center justify-between rounded-lg bg-success/[0.09] px-4 py-3">
-          <span className="font-semibold text-ink">Total do dia</span>
-          <span className="font-display text-2xl text-success">{formatarMoeda(total)}</span>
+          <span className="font-semibold text-ink">Total geral do dia</span>
+          <span className="font-display text-2xl text-success">{formatarMoeda(total + (pedidosPorDia.get(data)?.total ?? 0))}</span>
         </div>
         <div>
           <label htmlFor="obs-caixa" className="text-sm font-medium text-ink">Observações (opcional)</label>

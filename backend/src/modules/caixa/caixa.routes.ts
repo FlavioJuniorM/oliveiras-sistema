@@ -5,7 +5,7 @@ import { prisma } from "../../config/database";
 import { autenticar } from "../../middlewares/autenticacao";
 import { somentePapel } from "../../middlewares/permissoes";
 import { registrarLog } from "../../shared/registrarLog";
-import { formatarDataCalendario, hojeCalendario } from "../../shared/datas";
+import { dataNaLoja, formatarDataCalendario, hojeCalendario, periodoNaLoja } from "../../shared/datas";
 
 /**
  * Totais do caixa lançados à mão (copiados do sistema de caixa da loja).
@@ -62,6 +62,65 @@ caixaRouter.get("/lancamentos", async (req, res) => {
     orderBy: { data: "asc" },
   });
   return res.json(lancamentos.map(formatar));
+});
+
+/**
+ * GET /caixa/pedidos-entregues?mes=2026-11
+ * Comandas do sistema (pedidos delivery / balcão) entregues e concluídas, por dia da entrega.
+ * Somam junto com os lançamentos do caixa para dar o total geral do dia.
+ */
+caixaRouter.get("/pedidos-entregues", async (req, res) => {
+  const mes = String(req.query.mes ?? "");
+  if (!/^\d{4}-\d{2}$/.test(mes)) return res.status(400).json({ erro: "Informe o mês no formato AAAA-MM." });
+  const [ano, numeroMes] = mes.split("-").map(Number);
+  const ultimoDia = new Date(Date.UTC(ano, numeroMes, 0)).getUTCDate();
+  const { inicio, fim } = periodoNaLoja(`${mes}-01`, `${mes}-${String(ultimoDia).padStart(2, "0")}`);
+
+  const entregas = await prisma.pedidoStatusHistorico.findMany({
+    where: {
+      status: "ENTREGUE",
+      criadoEm: { gte: inicio, lte: fim },
+      pedido: { statusOperacao: "ENTREGUE", statusPagamento: { not: "CANCELADO" } },
+    },
+    include: {
+      pedido: {
+        select: {
+          id: true,
+          numero: true,
+          total: true,
+          tipoEntrega: true,
+          canal: true,
+          nomeCliente: true,
+          cliente: { select: { nome: true, nomeFantasia: true } },
+        },
+      },
+    },
+    orderBy: { criadoEm: "asc" },
+  });
+
+  // Se uma comanda foi marcada como entregue mais de uma vez, vale a última
+  const ultimaEntrega = new Map<string, (typeof entregas)[number]>();
+  for (const entrega of entregas) ultimaEntrega.set(entrega.pedidoId, entrega);
+
+  const porDia = new Map<string, { data: string; quantidade: number; total: number; pedidos: unknown[] }>();
+  for (const entrega of ultimaEntrega.values()) {
+    const dia = dataNaLoja(entrega.criadoEm);
+    const atual = porDia.get(dia) ?? { data: dia, quantidade: 0, total: 0, pedidos: [] };
+    const total = Number(entrega.pedido.total);
+    atual.quantidade += 1;
+    atual.total = Number((atual.total + total).toFixed(2));
+    atual.pedidos.push({
+      id: entrega.pedido.id,
+      numero: entrega.pedido.numero,
+      cliente: entrega.pedido.cliente?.nomeFantasia || entrega.pedido.cliente?.nome || entrega.pedido.nomeCliente || "Consumidor final",
+      tipoEntrega: entrega.pedido.tipoEntrega,
+      total,
+      entregueEm: entrega.criadoEm,
+    });
+    porDia.set(dia, atual);
+  }
+
+  return res.json([...porDia.values()].sort((a, b) => a.data.localeCompare(b.data)));
 });
 
 caixaRouter.post("/lancamentos", async (req, res) => {
