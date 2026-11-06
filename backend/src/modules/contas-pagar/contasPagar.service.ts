@@ -158,3 +158,62 @@ export async function excluirLancamentoContaPagar(id: string, usuarioId: string)
 
   return contaCancelada;
 }
+
+interface AlterarContaPagarInput {
+  fornecedor: string;
+  descricao: string;
+  categoria: string;
+  valor: number;
+  dataLancamento: Date;
+  vencimento: Date;
+  observacoes?: string | null;
+}
+
+/** Altera os dados de uma conta. O status é recalculado se o valor mudar. */
+export async function alterarContaPagar(id: string, dados: AlterarContaPagarInput, usuarioId: string) {
+  const conta = await prisma.contaPagar.findUnique({ where: { id } });
+  if (!conta) throw new ErroContaPagar("Conta não encontrada.");
+
+  const valorPago = Number(conta.valorPago);
+  if (dados.valor + 0.001 < valorPago) {
+    throw new ErroContaPagar(
+      `O valor não pode ser menor que o que já foi pago (R$ ${valorPago.toFixed(2).replace(".", ",")}).`
+    );
+  }
+
+  let status = conta.status;
+  if (status !== "CANCELADO") {
+    status = valorPago >= dados.valor - 0.001 && valorPago > 0 ? "PAGO" : valorPago > 0 ? "PARCIAL" : "PENDENTE";
+  }
+
+  const atualizada = await prisma.contaPagar.update({
+    where: { id },
+    data: { ...dados, observacoes: dados.observacoes || null, status },
+  });
+
+  await registrarLog({
+    usuarioId,
+    acao: "ALTEROU_CONTA_PAGAR",
+    entidade: "conta_pagar",
+    entidadeId: id,
+    detalhes: `Alterou conta de ${conta.fornecedor} — antes R$ ${conta.valor} venc. ${formatarDataCalendario(conta.vencimento)} (${conta.categoria}); agora R$ ${atualizada.valor} venc. ${formatarDataCalendario(atualizada.vencimento)} (${atualizada.categoria})`,
+  });
+
+  return atualizada;
+}
+
+/** Exclui a conta de vez. O registro do que foi apagado fica no log. */
+export async function excluirContaPagar(id: string, usuarioId: string) {
+  const conta = await prisma.contaPagar.findUnique({ where: { id } });
+  if (!conta) throw new ErroContaPagar("Conta não encontrada.");
+
+  await prisma.contaPagar.delete({ where: { id } });
+
+  await registrarLog({
+    usuarioId,
+    acao: "EXCLUIU_CONTA_PAGAR",
+    entidade: "conta_pagar",
+    entidadeId: id,
+    detalhes: `Excluiu conta de ${conta.fornecedor} — ${conta.descricao} — R$ ${conta.valor} (venc. ${formatarDataCalendario(conta.vencimento)}, pago R$ ${conta.valorPago})`,
+  });
+}

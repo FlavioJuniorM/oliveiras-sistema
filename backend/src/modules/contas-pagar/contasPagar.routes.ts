@@ -5,6 +5,8 @@ import { somentePapel } from "../../middlewares/permissoes";
 import {
   criarContaPagar,
   criarContaPagarDividida,
+  alterarContaPagar,
+  excluirContaPagar,
   excluirLancamentoContaPagar,
   ErroContaPagar,
   listarContasPagar,
@@ -23,6 +25,17 @@ contasPagarRouter.get("/", async (req, res) => {
   });
   return res.json(contas);
 });
+
+const CATEGORIAS_CONTA = [
+  "Fornecedores",
+  "Energia",
+  "Água",
+  "Aluguel",
+  "Funcionários",
+  "Impostos",
+  "Manutenção",
+  "Outros",
+] as const;
 
 const criarContaPagarSchema = z.object({
   fornecedor: z.string().min(2),
@@ -92,4 +105,40 @@ contasPagarRouter.patch("/:id/pagar", async (req, res) => {
 contasPagarRouter.patch("/:id/cancelar", async (req, res) => {
   const conta = await excluirLancamentoContaPagar(req.params.id, req.usuario!.id);
   return res.json(conta);
+});
+
+const alterarContaPagarSchema = z.object({
+  fornecedor: z.string().min(2),
+  descricao: z.string().min(2),
+  categoria: z.enum(CATEGORIAS_CONTA),
+  valor: z.number().positive(),
+  dataLancamento: z.coerce.date(),
+  vencimento: z.coerce.date(),
+  observacoes: z.string().nullable().optional(),
+});
+
+contasPagarRouter.put("/:id", async (req, res) => {
+  const validacao = alterarContaPagarSchema.safeParse(req.body);
+  if (!validacao.success) {
+    return res.status(400).json({ erro: validacao.error.issues[0].message });
+  }
+  try {
+    const conta = await alterarContaPagar(req.params.id, validacao.data, req.usuario!.id);
+    return res.json(conta);
+  } catch (erro) {
+    if (erro instanceof ErroContaPagar) return res.status(400).json({ erro: erro.message });
+    console.error(erro);
+    return res.status(500).json({ erro: "Erro interno ao alterar a conta." });
+  }
+});
+
+contasPagarRouter.delete("/:id", async (req, res) => {
+  try {
+    await excluirContaPagar(req.params.id, req.usuario!.id);
+    return res.status(204).end();
+  } catch (erro) {
+    if (erro instanceof ErroContaPagar) return res.status(404).json({ erro: erro.message });
+    console.error(erro);
+    return res.status(500).json({ erro: "Erro interno ao excluir a conta." });
+  }
 });
