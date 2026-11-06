@@ -14,6 +14,7 @@ import {
   finalizarConferenciaPedido,
   adicionarItemPedido,
   alterarItemPedido,
+  alterarPrecoItemPedido,
   removerItemPedido,
   listarPainelDoDia,
   listarAReceber,
@@ -287,6 +288,19 @@ pedidosRouter.patch("/:id/itens/:itemId", async (req, res) => {
   if (!validacao.success) return res.status(400).json({ erro: validacao.error.issues[0].message });
   try {
     return res.json(await alterarItemPedido(req.params.id, req.params.itemId, validacao.data, req.usuario!.id));
+  } catch (erro) {
+    return responderErroComanda(res, erro);
+  }
+});
+
+// Preço especial só nesta comanda (não muda o preço de Carnes e Cortes)
+const precoItemSchema = z.object({ precoUnitario: z.number().positive("Informe um preço maior que zero.").max(100000) });
+
+pedidosRouter.patch("/:id/itens/:itemId/preco", async (req, res) => {
+  const validacao = precoItemSchema.safeParse(req.body);
+  if (!validacao.success) return res.status(400).json({ erro: validacao.error.issues[0].message });
+  try {
+    return res.json(await alterarPrecoItemPedido(req.params.id, req.params.itemId, validacao.data.precoUnitario, req.usuario!.id));
   } catch (erro) {
     return responderErroComanda(res, erro);
   }

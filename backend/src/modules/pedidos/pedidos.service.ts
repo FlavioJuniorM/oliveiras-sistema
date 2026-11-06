@@ -955,3 +955,44 @@ export async function removerItemPedido(pedidoId: string, itemId: string, usuari
 
   return obterPedido(pedidoId);
 }
+
+/**
+ * Preço especial só desta comanda (desconto para um cliente).
+ * Muda apenas o preço gravado no item; o preço padrão em Carnes e Cortes não é tocado.
+ */
+export async function alterarPrecoItemPedido(
+  pedidoId: string,
+  itemId: string,
+  precoUnitario: number,
+  usuarioId: string
+) {
+  const pedido = await carregarComandaEditavel(pedidoId);
+  const item = pedido.itens.find((atual) => atual.id === itemId);
+  if (!item) throw new ErroPedido("Item não encontrado nesta comanda.");
+  if (!(precoUnitario > 0)) throw new ErroPedido("Informe um preço maior que zero.");
+
+  const produto = await prisma.produto.findUnique({ where: { id: item.produtoId } });
+  const precoAnterior = Number(item.precoUnitario);
+  const pesado = item.statusPreparo === "CORTADO" && item.pesoReal != null;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.pedidoItem.update({
+      where: { id: itemId },
+      data: {
+        precoUnitario,
+        subtotal: pesado ? calcularSubtotalPesado(precoUnitario, Number(item.pesoReal)) : 0,
+      },
+    });
+    await recalcularTotalComanda(tx, pedidoId);
+  });
+
+  await registrarLog({
+    usuarioId,
+    acao: "ALTEROU_PRECO_ITEM_PEDIDO",
+    entidade: "pedido",
+    entidadeId: pedidoId,
+    detalhes: `Comanda ${pedido.numero}: preço de ${produto?.nome ?? "item"} de R$ ${precoAnterior.toFixed(2)} para R$ ${precoUnitario.toFixed(2)} (padrão R$ ${Number(produto?.preco ?? 0).toFixed(2)}) — só nesta comanda`,
+  });
+
+  return obterPedido(pedidoId);
+}
