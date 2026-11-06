@@ -143,7 +143,7 @@ export function LancamentosCaixa() {
           <h2 id="titulo-lancamentos-caixa" className="font-display text-2xl uppercase text-ink sm:text-3xl">Lançamentos do caixa da loja</h2>
           <p className="mt-1 text-sm text-muted">Dinheiro, Pix e cartões do caixa da loja (lançados à mão) + pedidos delivery entregues no sistema (somados sozinhos). Escolha o dia no calendário.</p>
         </div>
-        <Button tamanho="grande" onClick={() => setFormulario({ data: diaFuturo || porDia.has(diaSelecionado) ? hoje : diaSelecionado })}>
+        <Button tamanho="grande" className="shrink-0 whitespace-nowrap" onClick={() => setFormulario({ data: diaFuturo || porDia.has(diaSelecionado) ? hoje : diaSelecionado })}>
           <IconeMais tamanho={20} />
           Inserir dados
         </Button>
