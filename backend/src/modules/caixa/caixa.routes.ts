@@ -23,33 +23,52 @@ const lancamentoSchema = z
     dinheiro: valor,
     pix: valor,
     cartoes: valor,
+    ceasa: valor.default(0),
+    gastos: valor.default(0),
+    gastosDescricao: z.string().max(500).nullable().optional(),
     observacoes: z.string().max(500).nullable().optional(),
   })
-  .refine((d) => d.dinheiro + d.pix + d.cartoes > 0, { message: "Informe pelo menos um valor." });
+  .refine((d) => d.dinheiro + d.pix + d.cartoes + d.ceasa + d.gastos > 0, { message: "Informe pelo menos um valor." });
 
 /** "2026-11-05" → data de calendário (meia-noite UTC), como fica guardada na coluna DATE. */
 function paraData(dia: string) {
   return new Date(`${dia}T00:00:00Z`);
 }
 
-function formatar(l: { id: string; data: Date; dinheiro: Prisma.Decimal; pix: Prisma.Decimal; cartoes: Prisma.Decimal; observacoes: string | null; atualizadoEm: Date }) {
+function formatar(l: {
+  id: string;
+  data: Date;
+  dinheiro: Prisma.Decimal;
+  pix: Prisma.Decimal;
+  cartoes: Prisma.Decimal;
+  ceasa: Prisma.Decimal;
+  gastos: Prisma.Decimal;
+  gastosDescricao: string | null;
+  observacoes: string | null;
+  atualizadoEm: Date;
+}) {
   const dinheiro = Number(l.dinheiro);
   const pix = Number(l.pix);
   const cartoes = Number(l.cartoes);
+  const ceasa = Number(l.ceasa);
   return {
     id: l.id,
     data: l.data.toISOString().slice(0, 10),
     dinheiro,
     pix,
     cartoes,
-    total: Number((dinheiro + pix + cartoes).toFixed(2)),
+    ceasa,
+    // total = entradas lançadas à mão (sem descontar os gastos)
+    total: Number((dinheiro + pix + cartoes + ceasa).toFixed(2)),
+    gastos: Number(l.gastos),
+    gastosDescricao: l.gastosDescricao,
     observacoes: l.observacoes,
     atualizadoEm: l.atualizadoEm,
   };
 }
 
 function resumo(l: ReturnType<typeof formatar>) {
-  return `dinheiro R$ ${l.dinheiro.toFixed(2)}, Pix R$ ${l.pix.toFixed(2)}, cartões R$ ${l.cartoes.toFixed(2)}`;
+  return `dinheiro R$ ${l.dinheiro.toFixed(2)}, Pix R$ ${l.pix.toFixed(2)}, cartões R$ ${l.cartoes.toFixed(2)}, CEASA R$ ${l.ceasa.toFixed(2)}, gastos R$ ${l.gastos.toFixed(2)}`;
 }
 
 // GET /caixa/lancamentos?mes=2026-11
@@ -131,7 +150,7 @@ caixaRouter.post("/lancamentos", async (req, res) => {
 
   try {
     const criado = formatar(
-      await prisma.lancamentoCaixa.create({ data: { data: paraData(data), ...valores, observacoes: valores.observacoes || null } })
+      await prisma.lancamentoCaixa.create({ data: { data: paraData(data), ...valores, observacoes: valores.observacoes || null, gastosDescricao: valores.gastosDescricao || null } })
     );
     await registrarLog({
       usuarioId: req.usuario!.id,
@@ -163,7 +182,7 @@ caixaRouter.put("/lancamentos/:id", async (req, res) => {
     const alterado = formatar(
       await prisma.lancamentoCaixa.update({
         where: { id: atual.id },
-        data: { data: paraData(data), ...valores, observacoes: valores.observacoes || null },
+        data: { data: paraData(data), ...valores, observacoes: valores.observacoes || null, gastosDescricao: valores.gastosDescricao || null },
       })
     );
     await registrarLog({

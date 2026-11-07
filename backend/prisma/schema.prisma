@@ -351,6 +351,11 @@ model LancamentoCaixa {
   dinheiro     Decimal  @default(0) @db.Decimal(12, 2)
   pix          Decimal  @default(0) @db.Decimal(12, 2)
   cartoes      Decimal  @default(0) @db.Decimal(12, 2)
+  // Vendas que vêm do sistema do CEASA
+  ceasa        Decimal  @default(0) @db.Decimal(12, 2)
+  // Gastos / sangrias tiradas do caixa no dia
+  gastos          Decimal @default(0) @db.Decimal(12, 2)
+  gastosDescricao String? @map("gastos_descricao")
   observacoes  String?
   criadoEm     DateTime @default(now()) @map("criado_em")
   atualizadoEm DateTime @updatedAt @map("atualizado_em")

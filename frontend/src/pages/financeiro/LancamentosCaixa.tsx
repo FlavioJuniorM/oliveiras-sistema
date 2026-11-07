@@ -13,7 +13,12 @@ interface LancamentoCaixa {
   dinheiro: number;
   pix: number;
   cartoes: number;
+  ceasa: number;
+  /** entradas lançadas à mão: dinheiro + Pix + cartões + CEASA */
   total: number;
+  /** gastos / sangrias do dia (saem do caixa) */
+  gastos: number;
+  gastosDescricao: string | null;
   observacoes: string | null;
 }
 
@@ -31,6 +36,7 @@ const FORMAS = [
   { chave: "dinheiro", rotulo: "Dinheiro", icone: "💵" },
   { chave: "pix", rotulo: "Pix", icone: "⚡" },
   { chave: "cartoes", rotulo: "Cartões", icone: "💳" },
+  { chave: "ceasa", rotulo: "CEASA", icone: "🥬" },
 ] as const;
 
 /** Valor curto para caber na célula do celular: 850 → "850", 1.225,18 → "1,2 mil". */
@@ -85,8 +91,8 @@ export function LancamentosCaixa() {
   const totaisMes = useMemo(
     () =>
       lancamentos.reduce(
-        (soma, l) => ({ ...soma, dinheiro: soma.dinheiro + l.dinheiro, pix: soma.pix + l.pix, cartoes: soma.cartoes + l.cartoes, total: soma.total + l.total }),
-        { dinheiro: 0, pix: 0, cartoes: 0, pedidos: entregues.reduce((soma, d) => soma + d.total, 0), total: entregues.reduce((soma, d) => soma + d.total, 0) }
+        (soma, l) => ({ ...soma, dinheiro: soma.dinheiro + l.dinheiro, pix: soma.pix + l.pix, cartoes: soma.cartoes + l.cartoes, ceasa: soma.ceasa + l.ceasa, gastos: soma.gastos + l.gastos, total: soma.total + l.total }),
+        { dinheiro: 0, pix: 0, cartoes: 0, ceasa: 0, gastos: 0, pedidos: entregues.reduce((soma, d) => soma + d.total, 0), total: entregues.reduce((soma, d) => soma + d.total, 0) }
       ),
     [lancamentos, entregues]
   );
@@ -141,7 +147,7 @@ export function LancamentosCaixa() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 id="titulo-lancamentos-caixa" className="font-display text-2xl uppercase text-ink sm:text-3xl">Lançamentos do caixa da loja</h2>
-          <p className="mt-1 text-sm text-muted">Dinheiro, Pix e cartões do caixa da loja (lançados à mão) + pedidos delivery entregues no sistema (somados sozinhos). Escolha o dia no calendário.</p>
+          <p className="mt-1 text-sm text-muted">Dinheiro, Pix, cartões e CEASA (lançados à mão) + pedidos delivery entregues no sistema (somados sozinhos), menos os gastos/sangrias do dia. Escolha o dia no calendário.</p>
         </div>
         <Button tamanho="grande" className="shrink-0 whitespace-nowrap" onClick={() => setFormulario({ data: diaFuturo || porDia.has(diaSelecionado) ? hoje : diaSelecionado })}>
           <IconeMais tamanho={20} />
@@ -165,7 +171,7 @@ export function LancamentosCaixa() {
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 xl:grid-cols-5">
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
             {FORMAS.map((forma) => (
               <div key={forma.chave} className="rounded-lg bg-background px-3 py-2.5">
                 <p className="text-xs text-muted">{forma.icone} {forma.rotulo} no mês</p>
@@ -177,9 +183,17 @@ export function LancamentosCaixa() {
               <p className="whitespace-nowrap font-display text-lg text-ink sm:text-xl">{formatarMoeda(totaisMes.pedidos)}</p>
               <p className="text-[11px] text-muted">{quantidadePedidosMes} {quantidadePedidosMes === 1 ? "comanda entregue" : "comandas entregues"}</p>
             </div>
-            <div className="col-span-2 rounded-lg bg-success/[0.09] px-3 py-2.5 sm:col-span-1">
-              <p className="text-xs text-muted">Total geral do mês</p>
+            <div className="rounded-lg bg-danger/[0.07] px-3 py-2.5">
+              <p className="text-xs text-muted">🔻 Gastos / sangrias</p>
+              <p className="whitespace-nowrap font-display text-lg text-danger sm:text-xl">− {formatarMoeda(totaisMes.gastos)}</p>
+            </div>
+            <div className="rounded-lg bg-success/[0.09] px-3 py-2.5">
+              <p className="text-xs text-muted">Total de entradas</p>
               <p className="whitespace-nowrap font-display text-lg text-success sm:text-xl">{formatarMoeda(totaisMes.total)}</p>
+            </div>
+            <div className="col-span-2 rounded-lg bg-ink px-3 py-2.5 text-white sm:col-span-4">
+              <p className="text-xs text-white/70">Saldo do mês (entradas − gastos)</p>
+              <p className="whitespace-nowrap font-display text-xl sm:text-2xl">{formatarMoeda(totaisMes.total - totaisMes.gastos)}</p>
             </div>
           </div>
           <p className="mt-2 text-xs text-muted">
@@ -241,7 +255,7 @@ export function LancamentosCaixa() {
                   </ul>
                 ) : (
                   <div className="mt-3 rounded-lg border border-dashed border-gold/60 bg-gold/[0.07] p-3">
-                    <p className="text-sm text-ink">Dinheiro, Pix e cartões do caixa da loja ainda não foram lançados neste dia.</p>
+                    <p className="text-sm text-ink">Dinheiro, Pix, cartões, CEASA e gastos ainda não foram lançados neste dia.</p>
                     <Button className="mt-3 w-full" onClick={() => setFormulario({ data: diaSelecionado })}><IconeMais tamanho={18} />Inserir dados deste dia</Button>
                   </div>
                 )}
@@ -268,8 +282,18 @@ export function LancamentosCaixa() {
                 </div>
 
                 <div className="flex items-center justify-between rounded-lg bg-success/[0.09] px-3 py-3">
-                  <span className="font-semibold text-ink">Total geral do dia</span>
+                  <span className="font-semibold text-ink">Total de entradas</span>
                   <span className="font-display text-2xl text-success">{formatarMoeda((lancamentoDoDia?.total ?? 0) + (pedidosDoDia?.total ?? 0))}</span>
+                </div>
+                {!!lancamentoDoDia?.gastos && (
+                  <div className="mt-2 rounded-lg bg-danger/[0.07] px-3 py-3">
+                    <div className="flex items-center justify-between"><span className="font-semibold text-ink">🔻 Gastos / sangrias</span><span className="font-display text-xl text-danger">− {formatarMoeda(lancamentoDoDia.gastos)}</span></div>
+                    {lancamentoDoDia.gastosDescricao && <p className="mt-1 text-sm text-ink">{lancamentoDoDia.gastosDescricao}</p>}
+                  </div>
+                )}
+                <div className="mt-2 flex items-center justify-between rounded-lg bg-ink px-3 py-3 text-white">
+                  <span className="font-semibold">Saldo do dia</span>
+                  <span className="font-display text-2xl">{formatarMoeda((lancamentoDoDia?.total ?? 0) + (pedidosDoDia?.total ?? 0) - (lancamentoDoDia?.gastos ?? 0))}</span>
                 </div>
                 {lancamentoDoDia?.observacoes && <p className="mt-3 rounded-lg bg-background px-3 py-2 text-sm text-ink">{lancamentoDoDia.observacoes}</p>}
                 {lancamentoDoDia && (
@@ -341,22 +365,27 @@ function ModalLancamento({
     dinheiro: textoInicial(editando?.dinheiro),
     pix: textoInicial(editando?.pix),
     cartoes: textoInicial(editando?.cartoes),
+    ceasa: textoInicial(editando?.ceasa),
   });
+  const [gastos, setGastos] = useState(textoInicial(editando?.gastos));
+  const [gastosDescricao, setGastosDescricao] = useState(editando?.gastosDescricao ?? "");
   const [observacoes, setObservacoes] = useState(editando?.observacoes ?? "");
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
 
   const numero = (texto: string) => Number(texto.replace(",", ".")) || 0;
-  const total = numero(valores.dinheiro) + numero(valores.pix) + numero(valores.cartoes);
+  const total = numero(valores.dinheiro) + numero(valores.pix) + numero(valores.cartoes) + numero(valores.ceasa);
+  const totalGastos = numero(gastos);
+  const pedidosDia = pedidosPorDia.get(data)?.total ?? 0;
   const outroNoMesmoDia = diasLancados.get(data);
   const conflito = outroNoMesmoDia && outroNoMesmoDia.id !== editando?.id;
 
   async function salvar(evento: FormEvent) {
     evento.preventDefault();
     setErro("");
-    if (total <= 0) return setErro("Informe pelo menos um valor.");
+    if (total <= 0 && totalGastos <= 0) return setErro("Informe pelo menos um valor.");
     setSalvando(true);
-    const corpo = { data, dinheiro: numero(valores.dinheiro), pix: numero(valores.pix), cartoes: numero(valores.cartoes), observacoes: observacoes.trim() || null };
+    const corpo = { data, dinheiro: numero(valores.dinheiro), pix: numero(valores.pix), cartoes: numero(valores.cartoes), ceasa: numero(valores.ceasa), gastos: totalGastos, gastosDescricao: gastosDescricao.trim() || null, observacoes: observacoes.trim() || null };
     try {
       const salvo = editando
         ? await api<LancamentoCaixa>(`/caixa/lancamentos/${editando.id}`, { method: "PUT", body: corpo })
@@ -374,7 +403,8 @@ function ModalLancamento({
       <form onSubmit={salvar} className="mt-4 flex flex-col gap-4">
         <Input label="Dia do caixa" type="date" value={data} max={dataLocalISO()} onChange={(e) => e.target.value && setData(e.target.value)} required />
         {conflito && <p className="-mt-2 rounded-lg bg-gold/15 px-3 py-2 text-sm text-ink">O dia {formatarDataCalendario(data)} já tem lançamento ({formatarMoeda(outroNoMesmoDia.total)}). Feche e use “Alterar” nesse dia.</p>}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <p className="-mb-2 text-sm font-semibold text-ink">Entradas</p>
+        <div className="grid grid-cols-2 gap-3 [&>*]:min-w-0">
           {FORMAS.map((forma) => (
             <Input
               key={forma.chave}
@@ -384,22 +414,31 @@ function ModalLancamento({
               min="0"
               step="0.01"
               placeholder="0,00"
+              className="w-full min-w-0"
               value={valores[forma.chave]}
               onChange={(e) => setValores((atual) => ({ ...atual, [forma.chave]: e.target.value }))}
             />
           ))}
         </div>
-        <div className="rounded-lg bg-background px-4 py-3 text-sm">
-          <div className="flex items-center justify-between"><span className="text-muted">Caixa da loja (dinheiro + Pix + cartões)</span><strong className="text-ink">{formatarMoeda(total)}</strong></div>
-          <div className="mt-1 flex items-center justify-between"><span className="text-muted">🛵 Pedidos delivery entregues ({pedidosPorDia.get(data)?.quantidade ?? 0}) · automático</span><strong className="text-ink">{formatarMoeda(pedidosPorDia.get(data)?.total ?? 0)}</strong></div>
+        <div className="rounded-lg border-2 border-danger/20 bg-danger/[0.04] p-3">
+          <p className="text-sm font-semibold text-ink">🔻 Gastos do dia (sangrias)</p>
+          <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[10rem_1fr]">
+            <Input label="Valor (R$)" type="number" inputMode="decimal" min="0" step="0.01" placeholder="0,00" className="w-full min-w-0" value={gastos} onChange={(e) => setGastos(e.target.value)} />
+            <Input label="Com o quê? (opcional)" placeholder="Ex.: sangria R$ 200, gelo, frete" className="w-full min-w-0" value={gastosDescricao} onChange={(e) => setGastosDescricao(e.target.value)} />
+          </div>
         </div>
-        <div className="flex items-center justify-between rounded-lg bg-success/[0.09] px-4 py-3">
-          <span className="font-semibold text-ink">Total geral do dia</span>
-          <span className="font-display text-2xl text-success">{formatarMoeda(total + (pedidosPorDia.get(data)?.total ?? 0))}</span>
+        <div className="rounded-lg bg-background px-4 py-3 text-sm">
+          <div className="flex items-center justify-between gap-3"><span className="text-muted">Caixa da loja + CEASA</span><strong className="whitespace-nowrap text-ink">{formatarMoeda(total)}</strong></div>
+          <div className="mt-1 flex items-center justify-between gap-3"><span className="text-muted">🛵 Pedidos delivery entregues ({pedidosPorDia.get(data)?.quantidade ?? 0}) · automático</span><strong className="whitespace-nowrap text-ink">{formatarMoeda(pedidosDia)}</strong></div>
+          <div className="mt-1 flex items-center justify-between gap-3"><span className="text-muted">Gastos / sangrias</span><strong className="whitespace-nowrap text-danger">− {formatarMoeda(totalGastos)}</strong></div>
+        </div>
+        <div className="flex items-center justify-between rounded-lg bg-ink px-4 py-3 text-white">
+          <span className="font-semibold">Saldo do dia</span>
+          <span className="font-display text-2xl">{formatarMoeda(total + pedidosDia - totalGastos)}</span>
         </div>
         <div>
           <label htmlFor="obs-caixa" className="text-sm font-medium text-ink">Observações (opcional)</label>
-          <textarea id="obs-caixa" rows={2} maxLength={500} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} placeholder="Ex.: sangria de R$ 200, diferença no caixa..." className="mt-1.5 w-full rounded-lg border border-border bg-white px-3.5 py-3 text-sm outline-none focus:border-primary" />
+          <textarea id="obs-caixa" rows={2} maxLength={500} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} placeholder="Ex.: diferença no caixa..." className="mt-1.5 w-full rounded-lg border border-border bg-white px-3.5 py-3 text-sm outline-none focus:border-primary" />
         </div>
         {erro && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -431,7 +470,7 @@ function ModalExcluirLancamento({ lancamento, onFechar, onExcluido }: { lancamen
     <Modal titulo="Excluir lançamento?" onFechar={onFechar}>
       <div className="mt-4 rounded-lg bg-background p-4 text-sm">
         <p className="font-semibold text-ink">{formatarDataCalendario(lancamento.data)}</p>
-        <p className="mt-1 text-muted">Dinheiro {formatarMoeda(lancamento.dinheiro)} · Pix {formatarMoeda(lancamento.pix)} · Cartões {formatarMoeda(lancamento.cartoes)}</p>
+        <p className="mt-1 text-muted">Dinheiro {formatarMoeda(lancamento.dinheiro)} · Pix {formatarMoeda(lancamento.pix)} · Cartões {formatarMoeda(lancamento.cartoes)} · CEASA {formatarMoeda(lancamento.ceasa)}{lancamento.gastos ? ` · Gastos − ${formatarMoeda(lancamento.gastos)}` : ""}</p>
         <p className="mt-2 font-semibold text-ink">Total {formatarMoeda(lancamento.total)}</p>
       </div>
       <p className="mt-4 text-sm text-ink">Os valores deste dia serão apagados. Não dá para desfazer.</p>
