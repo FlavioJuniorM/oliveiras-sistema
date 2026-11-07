@@ -107,8 +107,8 @@ function prepararPedidoParaExibicao(pedido: Pedido): Pedido {
 const NOME_LOJA = "CASA DE CARNES OLIVEIRAS";
 const ENDERECO_LOJA = "Rua Ametista, 22 - Jd Mutinga";
 const FORMAS_RECEBIMENTO: { valor: string; rotulo: string }[] = [
-  { valor: "CARTAO_DEBITO", rotulo: "Cartão de débito" },
-  { valor: "CARTAO_CREDITO", rotulo: "Cartão de crédito" },
+  { valor: "CARTAO_DEBITO", rotulo: "💳 Débito" },
+  { valor: "CARTAO_CREDITO", rotulo: "💳 Crédito" },
   { valor: "PIX", rotulo: "Pix" },
   { valor: "DINHEIRO", rotulo: "Dinheiro" },
 ];
@@ -525,12 +525,29 @@ function ModalFinalizacao({ pedido, onFechar, onFinalizado, onAtualizado }: { pe
   const [vencimento, setVencimento] = useState("");
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
+  // Pagamento dividido em duas formas (ex.: parte no cartão, parte em dinheiro)
+  const [dividir, setDividir] = useState(false);
+  const [forma1, setForma1] = useState("CARTAO_DEBITO");
+  const [valor1, setValor1] = useState("");
+  const [forma2, setForma2] = useState("DINHEIRO");
+  const totalComanda = Number(pedido.total);
+  const parte1 = Number(valor1.replace(",", ".")) || 0;
+  const parte2 = Number(Math.max(totalComanda - parte1, 0).toFixed(2));
+  const aVista = forma !== "A_PRAZO" && forma !== "NO_RECEBIMENTO";
   async function confirmar() {
     setErro("");
     if (forma === "A_PRAZO" && !vencimento) return setErro("Informe a data para pagamento posterior.");
+    const dividido = aVista && dividir;
+    if (dividido) {
+      if (forma1 === forma2) return setErro("Escolha duas formas diferentes (ex.: cartão e dinheiro).");
+      if (parte1 <= 0 || parte1 >= totalComanda) return setErro(`O valor da 1ª forma precisa ser maior que zero e menor que ${formatarMoeda(totalComanda)}.`);
+    }
     setSalvando(true);
     try {
-      const atualizado = await api<Pedido>(`/pedidos/${pedido.id}/finalizar-conferencia`, { method: "POST", body: { formaPagamento: forma, vencimento: forma === "A_PRAZO" ? vencimento : undefined } });
+      const corpo = dividido
+        ? { formaPagamento: "DIVIDIDO", divisao: [{ forma: forma1, valor: Number(parte1.toFixed(2)) }, { forma: forma2, valor: parte2 }] }
+        : { formaPagamento: forma, vencimento: forma === "A_PRAZO" ? vencimento : undefined };
+      const atualizado = await api<Pedido>(`/pedidos/${pedido.id}/finalizar-conferencia`, { method: "POST", body: corpo });
       onFinalizado(atualizado);
     } catch (e) {
       setErro(e instanceof ErroApi ? e.message : "Não foi possível finalizar a comanda.");
@@ -541,9 +558,34 @@ function ModalFinalizacao({ pedido, onFechar, onFinalizado, onAtualizado }: { pe
   if (pedidoPublico) {
     return <ModalFinalizacaoPublico pedido={pedido} formaPagamento={forma} onFechar={onFechar} onFinalizado={onFinalizado} />;
   }
-  return <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-3 py-5 sm:px-6"><div className="mx-auto max-w-3xl overflow-hidden rounded-card bg-surface shadow-2xl"><div className="flex items-start justify-between bg-ink px-6 py-5 text-white"><div><p className="font-display text-3xl uppercase">Conferência final</p><p className="mt-1 text-sm text-white/70">Comanda {pedido.numero} · {nomeDoCliente(pedido)}</p></div><button type="button" onClick={onFechar} className="text-2xl text-white/70">×</button></div><div className="p-6"><p className="text-sm text-muted">Confira o que o cliente pediu, o peso da balança de cada item e o valor final. Para dar desconto a este cliente, use “Alterar preço” no item.</p><div className="mt-4 overflow-hidden rounded-lg border border-border"><div className="hidden grid-cols-5 gap-3 bg-background px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted sm:grid"><span>Carne</span><span>Pediu</span><span>Balança</span><span>Preço</span><span className="text-right">Subtotal</span></div><div className="divide-y divide-border">{pedido.itens.map((item) => <div key={item.id} className="px-4 py-3"><div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-5 sm:gap-3"><div><p className="font-semibold text-ink">{item.produto?.nome}</p><p className="text-xs text-muted sm:hidden">Pediu: {textoPedido(item)} · Balança: {textoReal(item)} · {precoPorUnidade(item)}</p></div><span className="hidden text-muted sm:block">{textoPedido(item)}</span><span className="hidden text-success sm:block">{textoReal(item)}</span><span className="hidden text-muted sm:block">{precoPorUnidade(item)}</span><span className="col-span-2 text-right font-semibold text-ink sm:col-span-1">{formatarMoeda(item.subtotal)}</span></div><AlterarPrecoItem compacto pedido={pedido} item={item} onAtualizado={onAtualizado} /></div>)}<div className="flex items-center justify-between bg-background px-4 py-4"><span className="font-semibold text-ink">Valor final da nota</span><span className="font-display text-3xl text-gold-texto">{formatarMoeda(pedido.total)}</span></div></div></div><div className="mt-6 rounded-lg border-2 border-primary/20 bg-primary/5 p-5"><p className="font-display text-2xl uppercase text-ink">Condição de pagamento</p><p className="mt-1 text-sm text-muted">Escolha como o cliente vai pagar esta comanda.</p><div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3"><button type="button" onClick={() => setForma("NO_RECEBIMENTO")} className={`rounded-lg border p-4 text-left ${forma === "NO_RECEBIMENTO" ? "border-primary bg-white" : "border-border bg-surface"}`}><p className="font-semibold text-ink">Cobrar na entrega / retirada</p><p className="mt-1 text-xs text-muted">Maquininha com o motoboy ou no balcão</p></button><button type="button" onClick={() => setForma("DINHEIRO")} className={`rounded-lg border p-4 text-left ${forma !== "A_PRAZO" && forma !== "NO_RECEBIMENTO" ? "border-primary bg-white" : "border-border bg-surface"}`}><p className="font-semibold text-ink">Pagamento à vista</p><p className="mt-1 text-xs text-muted">Receber agora</p></button><button type="button" onClick={() => setForma("A_PRAZO")} className={`rounded-lg border p-4 text-left ${forma === "A_PRAZO" ? "border-primary bg-white" : "border-border bg-surface"}`}><p className="font-semibold text-ink">Pagamento posterior</p><p className="mt-1 text-xs text-muted">Lançar em contas a receber</p></button></div>{forma !== "A_PRAZO" && forma !== "NO_RECEBIMENTO" && <div className="mt-3"><label className="text-sm font-medium text-ink">Forma à vista</label><select value={forma} onChange={(e) => setForma(e.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-white px-3.5 text-sm"><option value="DINHEIRO">Dinheiro</option><option value="PIX">Pix</option><option value="CARTAO_DEBITO">Cartão de débito</option><option value="CARTAO_CREDITO">Cartão de crédito</option><option value="TRANSFERENCIA">Transferência</option></select></div>}{forma === "A_PRAZO" && <div className="mt-3"><Input label="Data para pagamento" type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} required /></div>}{erro && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}</div><div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Button variante="secundaria" onClick={onFechar}>Voltar para a comanda</Button><Button tamanho="grande" disabled={salvando} onClick={confirmar}>{salvando ? "Finalizando..." : "Fechar comanda (vai para Prontos)"}</Button></div></div></div></div>;
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-3 py-5 sm:px-6"><div className="mx-auto max-w-3xl overflow-hidden rounded-card bg-surface shadow-2xl"><div className="flex items-start justify-between bg-ink px-6 py-5 text-white"><div><p className="font-display text-3xl uppercase">Conferência final</p><p className="mt-1 text-sm text-white/70">Comanda {pedido.numero} · {nomeDoCliente(pedido)}</p></div><button type="button" onClick={onFechar} className="text-2xl text-white/70">×</button></div><div className="p-6"><p className="text-sm text-muted">Confira o que o cliente pediu, o peso da balança de cada item e o valor final. Para dar desconto a este cliente, use “Alterar preço” no item.</p><div className="mt-4 overflow-hidden rounded-lg border border-border"><div className="hidden grid-cols-5 gap-3 bg-background px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted sm:grid"><span>Carne</span><span>Pediu</span><span>Balança</span><span>Preço</span><span className="text-right">Subtotal</span></div><div className="divide-y divide-border">{pedido.itens.map((item) => <div key={item.id} className="px-4 py-3"><div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-5 sm:gap-3"><div><p className="font-semibold text-ink">{item.produto?.nome}</p><p className="text-xs text-muted sm:hidden">Pediu: {textoPedido(item)} · Balança: {textoReal(item)} · {precoPorUnidade(item)}</p></div><span className="hidden text-muted sm:block">{textoPedido(item)}</span><span className="hidden text-success sm:block">{textoReal(item)}</span><span className="hidden text-muted sm:block">{precoPorUnidade(item)}</span><span className="col-span-2 text-right font-semibold text-ink sm:col-span-1">{formatarMoeda(item.subtotal)}</span></div><AlterarPrecoItem compacto pedido={pedido} item={item} onAtualizado={onAtualizado} /></div>)}<div className="flex items-center justify-between bg-background px-4 py-4"><span className="font-semibold text-ink">Valor final da nota</span><span className="font-display text-3xl text-gold-texto">{formatarMoeda(pedido.total)}</span></div></div></div><div className="mt-6 rounded-lg border-2 border-primary/20 bg-primary/5 p-5"><p className="font-display text-2xl uppercase text-ink">Condição de pagamento</p><p className="mt-1 text-sm text-muted">Escolha como o cliente vai pagar esta comanda.</p><div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3"><button type="button" onClick={() => setForma("NO_RECEBIMENTO")} className={`rounded-lg border p-4 text-left ${forma === "NO_RECEBIMENTO" ? "border-primary bg-white" : "border-border bg-surface"}`}><p className="font-semibold text-ink">Cobrar na entrega / retirada</p><p className="mt-1 text-xs text-muted">Maquininha com o motoboy ou no balcão</p></button><button type="button" onClick={() => setForma("DINHEIRO")} className={`rounded-lg border p-4 text-left ${forma !== "A_PRAZO" && forma !== "NO_RECEBIMENTO" ? "border-primary bg-white" : "border-border bg-surface"}`}><p className="font-semibold text-ink">Pagamento à vista</p><p className="mt-1 text-xs text-muted">Receber agora</p></button><button type="button" onClick={() => setForma("A_PRAZO")} className={`rounded-lg border p-4 text-left ${forma === "A_PRAZO" ? "border-primary bg-white" : "border-border bg-surface"}`}><p className="font-semibold text-ink">Pagamento posterior</p><p className="mt-1 text-xs text-muted">Lançar em contas a receber</p></button></div>{aVista && <div className="mt-4">
+        <div className="grid grid-cols-2 gap-2" role="group" aria-label="Quantas formas de pagamento">
+          <button type="button" aria-pressed={!dividir} onClick={() => setDividir(false)} className={`min-h-11 rounded-lg border-2 px-3 text-sm font-semibold ${!dividir ? "border-primary bg-white text-primary" : "border-border bg-surface text-ink"}`}>Uma forma</button>
+          <button type="button" aria-pressed={dividir} onClick={() => { setDividir(true); if (!valor1) setValor1((totalComanda / 2).toFixed(2)); }} className={`min-h-11 rounded-lg border-2 px-3 text-sm font-semibold ${dividir ? "border-primary bg-white text-primary" : "border-border bg-surface text-ink"}`}>➗ Duas formas<span className="block text-[11px] font-normal text-muted">ex.: cartão + dinheiro</span></button>
+        </div>
+        {!dividir ? <div className="mt-3"><label htmlFor="forma-a-vista" className="text-sm font-medium text-ink">Forma à vista</label><select id="forma-a-vista" value={forma} onChange={(e) => setForma(e.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-white px-3.5 text-sm">{OPCOES_A_VISTA.map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}</select></div>
+        : <div className="mt-3 rounded-lg border border-border bg-white p-4">
+          <div className="grid grid-cols-2 gap-2 [&>*]:min-w-0 sm:grid-cols-[1fr_11rem]">
+            <div className="flex flex-col gap-1.5"><label htmlFor="forma-1" className="text-sm font-medium text-ink">1ª forma</label><select id="forma-1" value={forma1} onChange={(e) => setForma1(e.target.value)} className="h-11 w-full min-w-0 rounded-lg border border-border bg-white px-3 text-sm">{OPCOES_A_VISTA.map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}</select></div>
+            <Input label="Valor (R$)" type="number" inputMode="decimal" step="0.01" min="0.01" className="w-full min-w-0" value={valor1} onChange={(e) => setValor1(e.target.value)} />
+            <div className="flex flex-col gap-1.5"><label htmlFor="forma-2" className="text-sm font-medium text-ink">2ª forma</label><select id="forma-2" value={forma2} onChange={(e) => setForma2(e.target.value)} className="h-11 w-full min-w-0 rounded-lg border border-border bg-white px-3 text-sm">{OPCOES_A_VISTA.map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}</select></div>
+            <div className="flex flex-col gap-1.5"><span className="text-sm font-medium text-ink">Valor (R$)</span><span className="flex h-11 items-center rounded-lg bg-background px-3.5 text-sm font-semibold text-ink" aria-live="polite">{formatarMoeda(parte2)}</span></div>
+          </div>
+          <p className="mt-3 text-xs text-muted">Digite quanto vai na 1ª forma; o restante ({formatarMoeda(parte2)}) vai na 2ª. Total da comanda: <strong className="text-ink">{formatarMoeda(totalComanda)}</strong>.</p>
+          {forma1 === forma2 && <p className="mt-2 text-xs font-semibold text-danger">Escolha duas formas diferentes.</p>}
+          {parte1 >= totalComanda && <p className="mt-2 text-xs font-semibold text-danger">A 1ª forma não pode ser o valor todo — use “Uma forma”.</p>}
+        </div>}
+      </div>}{forma === "A_PRAZO" && <div className="mt-3"><Input label="Data para pagamento" type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} required /></div>}{erro && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}</div><div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Button variante="secundaria" onClick={onFechar}>Voltar para a comanda</Button><Button tamanho="grande" disabled={salvando} onClick={confirmar}>{salvando ? "Finalizando..." : "Fechar comanda (vai para Prontos)"}</Button></div></div></div></div>;
 }
 
+
+const OPCOES_A_VISTA = [
+  { valor: "DINHEIRO", rotulo: "Dinheiro" },
+  { valor: "PIX", rotulo: "Pix" },
+  { valor: "CARTAO_DEBITO", rotulo: "💳 Débito" },
+  { valor: "CARTAO_CREDITO", rotulo: "💳 Crédito" },
+  { valor: "TRANSFERENCIA", rotulo: "Transferência" },
+];
 
 const UNIDADES_EDICAO: { valor: UnidadePedido; rotulo: string }[] = [
   { valor: "kg", rotulo: "kg" },

@@ -143,8 +143,14 @@ const finalizacaoConferenciaSchema = z.object({
     "NA_RETIRADA",
     "NA_ENTREGA",
     "NO_RECEBIMENTO",
+    "DIVIDIDO",
   ]),
   vencimento: z.coerce.date().optional(),
+  // Pagamento dividido em duas formas (ex.: parte no cartão, parte em dinheiro)
+  divisao: z
+    .array(z.object({ forma: z.enum(["DINHEIRO", "PIX", "CARTAO_DEBITO", "CARTAO_CREDITO", "TRANSFERENCIA"]), valor: z.number().positive("Cada parte precisa ter valor.") }))
+    .length(2)
+    .optional(),
 });
 
 pedidosRouter.patch("/:id/itens/:itemId/preparo", async (req, res) => {

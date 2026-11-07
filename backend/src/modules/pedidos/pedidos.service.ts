@@ -624,7 +624,8 @@ export type FormaPagamentoFinal =
   | "A_PRAZO"
   | "NA_RETIRADA"
   | "NA_ENTREGA"
-  | "NO_RECEBIMENTO";
+  | "NO_RECEBIMENTO"
+  | "DIVIDIDO";
 
 /**
  * Fecha a conferência dos cortes e registra a condição de pagamento somente
@@ -632,7 +633,11 @@ export type FormaPagamentoFinal =
  */
 export async function finalizarConferenciaPedido(
   pedidoId: string,
-  input: { formaPagamento: FormaPagamentoFinal; vencimento?: Date },
+  input: {
+    formaPagamento: FormaPagamentoFinal;
+    vencimento?: Date;
+    divisao?: { forma: "DINHEIRO" | "PIX" | "CARTAO_DEBITO" | "CARTAO_CREDITO" | "TRANSFERENCIA"; valor: number }[];
+  },
   usuarioId: string
 ) {
   const pedido = await prisma.pedido.findUnique({
@@ -655,6 +660,18 @@ export async function finalizarConferenciaPedido(
   if (input.formaPagamento === "A_PRAZO") {
     if (!pedido.clienteId) throw new ErroPedido("Pagamento posterior exige um cliente cadastrado.");
     if (!input.vencimento) throw new ErroPedido("Informe a data de vencimento do pagamento posterior.");
+  }
+
+  if (input.formaPagamento === "DIVIDIDO") {
+    const partes = input.divisao ?? [];
+    if (partes.length !== 2) throw new ErroPedido("Informe as duas formas de pagamento.");
+    if (partes[0].forma === partes[1].forma) throw new ErroPedido("Escolha duas formas diferentes (ex.: cartão e dinheiro).");
+    const soma = partes.reduce((t, p) => t + p.valor, 0);
+    if (Math.abs(soma - saldo) > TOLERANCIA_CENTAVOS) {
+      throw new ErroPedido(
+        `As duas partes somam ${soma.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}, mas a comanda é ${saldo.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}.`
+      );
+    }
   }
 
   // "NO_RECEBIMENTO": cobrar quando o cliente retirar ou quando o motoboy entregar (maquininha)
@@ -691,11 +708,18 @@ export async function finalizarConferenciaPedido(
           },
         });
       }
+    } else if (input.formaPagamento === "DIVIDIDO") {
+      for (const parte of input.divisao!) {
+        await tx.pagamento.create({ data: { pedidoId, forma: parte.forma, valor: Number(parte.valor.toFixed(2)), usuarioId } });
+      }
+      if (pedido.contaReceber) {
+        await tx.contaReceber.update({ where: { pedidoId }, data: { saldo: 0, status: "PAGO" } });
+      }
     } else if (!pagamentoNaEntrega && saldo > TOLERANCIA_CENTAVOS) {
       await tx.pagamento.create({
         data: {
           pedidoId,
-          forma: input.formaPagamento as Exclude<FormaPagamentoFinal, "A_PRAZO" | "NA_RETIRADA" | "NA_ENTREGA" | "NO_RECEBIMENTO">,
+          forma: input.formaPagamento as Exclude<FormaPagamentoFinal, "A_PRAZO" | "NA_RETIRADA" | "NA_ENTREGA" | "NO_RECEBIMENTO" | "DIVIDIDO">,
           valor: saldo,
           usuarioId,
         },
@@ -728,7 +752,11 @@ export async function finalizarConferenciaPedido(
     acao: "FINALIZOU_CONFERENCIA_PEDIDO",
     entidade: "pedido",
     entidadeId: pedidoId,
-    detalhes: `Finalizou a conferência do pedido ${pedido.numero} — pagamento ${input.formaPagamento}`,
+    detalhes: `Finalizou a conferência do pedido ${pedido.numero} — pagamento ${
+      input.formaPagamento === "DIVIDIDO"
+        ? input.divisao!.map((p) => `${p.forma} R$ ${p.valor.toFixed(2)}`).join(" + ")
+        : input.formaPagamento
+    }`,
   });
 
   return obterPedido(pedidoId);
