@@ -5,7 +5,15 @@ import { Cliente, Pedido } from "../../types";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 
-type ModoPagamento = "DINHEIRO" | "PIX" | "CARTAO_DEBITO" | "CARTAO_CREDITO" | "TRANSFERENCIA" | "A_PRAZO" | "NO_RECEBIMENTO";
+type ModoPagamento = "DINHEIRO" | "PIX" | "CARTAO_DEBITO" | "CARTAO_CREDITO" | "TRANSFERENCIA" | "DIVIDIDO" | "A_PRAZO" | "NO_RECEBIMENTO";
+
+const FORMAS_SIMPLES = [
+  { valor: "DINHEIRO", rotulo: "💵 Dinheiro" },
+  { valor: "PIX", rotulo: "⚡ Pix" },
+  { valor: "CARTAO_DEBITO", rotulo: "💳 Débito" },
+  { valor: "CARTAO_CREDITO", rotulo: "💳 Crédito" },
+  { valor: "TRANSFERENCIA", rotulo: "🏦 Transferência" },
+];
 
 const OPCOES_PAGAMENTO: { valor: ModoPagamento; rotulo: string }[] = [
   { valor: "DINHEIRO", rotulo: "💵 Dinheiro" },
@@ -13,6 +21,7 @@ const OPCOES_PAGAMENTO: { valor: ModoPagamento; rotulo: string }[] = [
   { valor: "CARTAO_DEBITO", rotulo: "💳 Débito" },
   { valor: "CARTAO_CREDITO", rotulo: "💳 Crédito" },
   { valor: "TRANSFERENCIA", rotulo: "🏦 Transferência" },
+  { valor: "DIVIDIDO", rotulo: "➗ Duas formas" },
   { valor: "A_PRAZO", rotulo: "📄 A prazo (paga depois)" },
   { valor: "NO_RECEBIMENTO", rotulo: "🛵 Cobrar na entrega / retirada" },
 ];
@@ -84,6 +93,13 @@ export function ModalAlterarComanda({
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
+  // Duas formas: digita a 1ª parte, a 2ª é o restante
+  const total = Number(pedido.total);
+  const [forma1, setForma1] = useState("CARTAO_DEBITO");
+  const [valor1, setValor1] = useState((total / 2).toFixed(2));
+  const [forma2, setForma2] = useState("DINHEIRO");
+  const parte1 = Number(valor1.replace(",", ".")) || 0;
+  const parte2 = Number(Math.max(total - parte1, 0).toFixed(2));
 
   const precisaCliente = pagamento === "A_PRAZO" && !cliente;
 
@@ -107,6 +123,10 @@ export function ModalAlterarComanda({
     if (tipoEntrega === "DELIVERY" && !endereco.trim()) return setErro("Informe o endereço de entrega.");
     if (pagamento === "A_PRAZO" && !cliente) return setErro("Escolha o cliente que vai pagar depois.");
     if (pagamento === "A_PRAZO" && !vencimento) return setErro("Escolha a data em que o cliente vai pagar.");
+    if (pagamento === "DIVIDIDO") {
+      if (forma1 === forma2) return setErro("Escolha duas formas diferentes (ex.: cartão e dinheiro).");
+      if (parte1 <= 0 || parte1 >= total) return setErro(`O valor da 1ª forma precisa ser maior que zero e menor que ${formatarMoeda(total)}.`);
+    }
 
     const corpo: Record<string, unknown> = {};
     if (mudouEntrega) {
@@ -116,6 +136,7 @@ export function ModalAlterarComanda({
     if (mudouCliente) corpo.clienteId = cliente!.id;
     if (pagamento === "A_PRAZO") corpo.pagamento = { modo: "A_PRAZO", vencimento };
     else if (pagamento === "NO_RECEBIMENTO") corpo.pagamento = { modo: "NO_RECEBIMENTO" };
+    else if (pagamento === "DIVIDIDO") corpo.pagamento = { modo: "DIVIDIDO", partes: [{ forma: forma1, valor: Number(parte1.toFixed(2)) }, { forma: forma2, valor: parte2 }] };
     else if (pagamento) corpo.pagamento = { modo: "PAGO", forma: pagamento };
 
     setSalvando(true);
@@ -159,7 +180,20 @@ export function ModalAlterarComanda({
             ))}
           </div>
           {pagamento === null && <p className="mt-2 text-xs text-muted">Nada marcado = o pagamento continua como está.</p>}
-          {pagamento && pagamento !== "A_PRAZO" && pagamento !== "NO_RECEBIMENTO" && <p className="mt-2 text-xs text-muted">Fica registrado como pago em {OPCOES_PAGAMENTO.find((o) => o.valor === pagamento)?.rotulo.replace(/^\S+\s/, "").toLowerCase()} ({formatarMoeda(pedido.total)}).</p>}
+          {pagamento === "DIVIDIDO" && (
+            <div className="mt-3 rounded-lg border-2 border-primary/20 bg-primary/[0.04] p-3">
+              <div className="grid grid-cols-2 gap-2 [&>*]:min-w-0">
+                <div className="flex flex-col gap-1.5"><label htmlFor="alt-forma-1" className="text-sm font-medium text-ink">1ª forma</label><select id="alt-forma-1" value={forma1} onChange={(e) => setForma1(e.target.value)} className="h-11 w-full min-w-0 rounded-lg border border-border bg-white px-3 text-sm">{FORMAS_SIMPLES.map((f) => <option key={f.valor} value={f.valor}>{f.rotulo}</option>)}</select></div>
+                <Input label="Valor (R$)" type="number" inputMode="decimal" step="0.01" min="0.01" className="w-full min-w-0" value={valor1} onChange={(e) => setValor1(e.target.value)} />
+                <div className="flex flex-col gap-1.5"><label htmlFor="alt-forma-2" className="text-sm font-medium text-ink">2ª forma</label><select id="alt-forma-2" value={forma2} onChange={(e) => setForma2(e.target.value)} className="h-11 w-full min-w-0 rounded-lg border border-border bg-white px-3 text-sm">{FORMAS_SIMPLES.map((f) => <option key={f.valor} value={f.valor}>{f.rotulo}</option>)}</select></div>
+                <div className="flex flex-col gap-1.5"><span className="text-sm font-medium text-ink">Valor (R$)</span><span className="flex h-11 items-center rounded-lg bg-white px-3.5 text-sm font-semibold text-ink" aria-live="polite">{formatarMoeda(parte2)}</span></div>
+              </div>
+              <p className="mt-2 text-xs text-muted">Digite quanto foi na 1ª forma; o restante vai na 2ª. Total: <strong className="text-ink">{formatarMoeda(total)}</strong>.</p>
+              {forma1 === forma2 && <p className="mt-1 text-xs font-semibold text-danger">Escolha duas formas diferentes.</p>}
+              {parte1 >= total && <p className="mt-1 text-xs font-semibold text-danger">A 1ª forma não pode ser o valor todo — escolha uma forma só.</p>}
+            </div>
+          )}
+          {pagamento && pagamento !== "A_PRAZO" && pagamento !== "NO_RECEBIMENTO" && pagamento !== "DIVIDIDO" && <p className="mt-2 text-xs text-muted">Fica registrado como pago em {OPCOES_PAGAMENTO.find((o) => o.valor === pagamento)?.rotulo.replace(/^\S+\s/, "").toLowerCase()} ({formatarMoeda(pedido.total)}).</p>}
 
           {pagamento === "A_PRAZO" && (
             <div className="mt-3 rounded-lg border-2 border-primary/20 bg-primary/[0.04] p-3">

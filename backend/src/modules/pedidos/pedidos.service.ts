@@ -1060,7 +1060,11 @@ export async function alterarPrecoItemPedido(
 export type NovoPagamentoComanda =
   | { modo: "PAGO"; forma: "DINHEIRO" | "PIX" | "CARTAO_DEBITO" | "CARTAO_CREDITO" | "TRANSFERENCIA" | "OUTROS" }
   | { modo: "A_PRAZO"; vencimento: Date }
-  | { modo: "NO_RECEBIMENTO" };
+  | { modo: "NO_RECEBIMENTO" }
+  | {
+      modo: "DIVIDIDO";
+      partes: { forma: "DINHEIRO" | "PIX" | "CARTAO_DEBITO" | "CARTAO_CREDITO" | "TRANSFERENCIA"; valor: number }[];
+    };
 
 const NOMES_FORMA: Record<string, string> = {
   DINHEIRO: "dinheiro",
@@ -1144,6 +1148,16 @@ export async function alterarPagamentoEEntrega(
     if (novo.modo === "A_PRAZO" && !clienteId) {
       throw new ErroPedido("Para vender a prazo, escolha o cliente que vai pagar depois.");
     }
+    if (novo.modo === "DIVIDIDO") {
+      if (novo.partes.length !== 2) throw new ErroPedido("Informe as duas formas de pagamento.");
+      if (novo.partes[0].forma === novo.partes[1].forma) throw new ErroPedido("Escolha duas formas diferentes (ex.: cartão e dinheiro).");
+      const soma = novo.partes.reduce((t, p) => t + p.valor, 0);
+      if (Math.abs(soma - total) > TOLERANCIA_CENTAVOS) {
+        throw new ErroPedido(
+          `As duas partes somam ${soma.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}, mas a comanda é ${total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}.`
+        );
+      }
+    }
     if (novo.modo === "NO_RECEBIMENTO" && statusAtual === "ENTREGUE") {
       throw new ErroPedido("A comanda já foi entregue: escolha como foi pago ou marque “a prazo (paga depois)”.");
     }
@@ -1154,7 +1168,12 @@ export async function alterarPagamentoEEntrega(
         ? [...new Set(pedido.pagamentos.map((p) => NOMES_FORMA[p.forma] ?? p.forma))].join(" + ")
         : "cobrar na retirada/entrega";
 
-    if (novo.modo === "PAGO") {
+    if (novo.modo === "DIVIDIDO") {
+      dados.statusPagamento = "PAGO";
+      dados.momentoPagamento = null;
+      dados.vencimento = null;
+      mudancas.push(`pagamento: ${anterior} → ${novo.partes.map((p) => `${NOMES_FORMA[p.forma]} R$ ${p.valor.toFixed(2)}`).join(" + ")}`);
+    } else if (novo.modo === "PAGO") {
       dados.statusPagamento = "PAGO";
       dados.momentoPagamento = null;
       dados.vencimento = null;
@@ -1191,6 +1210,11 @@ export async function alterarPagamentoEEntrega(
         await tx.contaReceber.deleteMany({ where: { pedidoId } });
         if (novo.modo === "PAGO" && total > TOLERANCIA_CENTAVOS) {
           await tx.pagamento.create({ data: { pedidoId, forma: novo.forma, valor: total, usuarioId } });
+        }
+        if (novo.modo === "DIVIDIDO") {
+          for (const parte of novo.partes) {
+            await tx.pagamento.create({ data: { pedidoId, forma: parte.forma, valor: Number(parte.valor.toFixed(2)), usuarioId } });
+          }
         }
       }
     } else if (input.clienteId && pedido.contaReceber && clienteId) {

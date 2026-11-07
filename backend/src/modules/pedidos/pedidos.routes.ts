@@ -183,6 +183,12 @@ const alterarComandaSchema = z.object({
       z.object({ modo: z.literal("PAGO"), forma: z.enum(["DINHEIRO", "PIX", "CARTAO_DEBITO", "CARTAO_CREDITO", "TRANSFERENCIA", "OUTROS"]) }),
       z.object({ modo: z.literal("A_PRAZO"), vencimento: z.coerce.date() }),
       z.object({ modo: z.literal("NO_RECEBIMENTO") }),
+      z.object({
+        modo: z.literal("DIVIDIDO"),
+        partes: z
+          .array(z.object({ forma: z.enum(["DINHEIRO", "PIX", "CARTAO_DEBITO", "CARTAO_CREDITO", "TRANSFERENCIA"]), valor: z.number().positive("Cada parte precisa ter valor.") }))
+          .length(2),
+      }),
     ])
     .optional(),
   tipoEntrega: z.enum(["RETIRADA", "DELIVERY"]).optional(),
