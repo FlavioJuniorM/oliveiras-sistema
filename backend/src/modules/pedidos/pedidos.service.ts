@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database";
 import { registrarLog } from "../../shared/registrarLog";
 import { gerarNumeroPedido } from "./numeroPedido";
-import { dataNaLoja, periodoNaLoja } from "../../shared/datas";
+import { dataNaLoja, formatarDataCalendario, periodoNaLoja } from "../../shared/datas";
 import {
   excedeToleranciaPesagem,
   obterConfiguracaoPesagem,
@@ -1024,6 +1024,169 @@ export async function alterarPrecoItemPedido(
     entidade: "pedido",
     entidadeId: pedidoId,
     detalhes: `Comanda ${pedido.numero}: preço de ${produto?.nome ?? "item"} de R$ ${precoAnterior.toFixed(2)} para R$ ${precoUnitario.toFixed(2)} (padrão R$ ${Number(produto?.preco ?? 0).toFixed(2)}) — só nesta comanda`,
+  });
+
+  return obterPedido(pedidoId);
+}
+
+export type NovoPagamentoComanda =
+  | { modo: "PAGO"; forma: "DINHEIRO" | "PIX" | "CARTAO_DEBITO" | "CARTAO_CREDITO" | "TRANSFERENCIA" | "OUTROS" }
+  | { modo: "A_PRAZO"; vencimento: Date }
+  | { modo: "NO_RECEBIMENTO" };
+
+const NOMES_FORMA: Record<string, string> = {
+  DINHEIRO: "dinheiro",
+  PIX: "Pix",
+  CARTAO_DEBITO: "cartão de débito",
+  CARTAO_CREDITO: "cartão de crédito",
+  TRANSFERENCIA: "transferência",
+  OUTROS: "outros",
+  BOLETO: "boleto",
+  A_PRAZO: "a prazo",
+};
+
+/**
+ * Corrige uma comanda já fechada (pronta, em rota, aguardando retirada ou entregue):
+ * troca a forma de pagamento (inclusive para a prazo / "paga depois"), o cliente,
+ * e se sai como retirada ou entrega.
+ */
+export async function alterarPagamentoEEntrega(
+  pedidoId: string,
+  input: {
+    pagamento?: NovoPagamentoComanda;
+    tipoEntrega?: "RETIRADA" | "DELIVERY";
+    enderecoEntrega?: string;
+    clienteId?: string;
+  },
+  usuarioId: string
+) {
+  const pedido = await prisma.pedido.findUnique({
+    where: { id: pedidoId },
+    include: { cliente: true, pagamentos: true, contaReceber: true },
+  });
+  if (!pedido) throw new ErroPedido("Pedido não encontrado.");
+  if (pedido.statusPagamento === "CANCELADO") throw new ErroPedido("Esta comanda está cancelada.");
+
+  const statusAtual = pedido.statusOperacao === "EXPEDICAO" ? "PRONTO" : pedido.statusOperacao;
+  if (statusAtual === "RECEBIDO" || statusAtual === "EM_PREPARO") {
+    throw new ErroPedido("A comanda ainda está aberta. Feche a comanda primeiro (o pagamento é definido no fechamento).");
+  }
+
+  const total = Number(pedido.total);
+  const dados: Prisma.PedidoUpdateInput = {};
+  const mudancas: string[] = [];
+  let novoStatusOperacao: StatusOperacaoPedido | null = null;
+
+  // ---- Cliente
+  let clienteId = pedido.clienteId;
+  if (input.clienteId && input.clienteId !== pedido.clienteId) {
+    const cliente = await prisma.cliente.findUnique({ where: { id: input.clienteId } });
+    if (!cliente) throw new ErroPedido("Cliente não encontrado.");
+    clienteId = cliente.id;
+    dados.cliente = { connect: { id: cliente.id } };
+    mudancas.push(`cliente: ${cliente.nomeFantasia || cliente.nome}`);
+  }
+
+  // ---- Retirada ou entrega
+  const tipoEntrega = input.tipoEntrega ?? pedido.tipoEntrega;
+  if (input.tipoEntrega && input.tipoEntrega !== pedido.tipoEntrega) {
+    dados.tipoEntrega = input.tipoEntrega;
+    mudancas.push(input.tipoEntrega === "DELIVERY" ? "passou para entrega" : "passou para retirada");
+  }
+  if (tipoEntrega === "DELIVERY") {
+    const endereco = input.enderecoEntrega?.trim() || pedido.enderecoEntrega || pedido.cliente?.endereco;
+    if (!endereco) throw new ErroPedido("Informe o endereço de entrega.");
+    if (endereco !== pedido.enderecoEntrega) {
+      dados.enderecoEntrega = endereco;
+      if (pedido.enderecoEntrega) mudancas.push(`endereço: ${endereco}`);
+    }
+  }
+  // A comanda que já saiu acompanha a troca: em rota ↔ aguardando retirada
+  if (statusAtual === "AGUARDANDO_RETIRADA" && tipoEntrega === "DELIVERY") novoStatusOperacao = "EM_ENTREGA";
+  if (statusAtual === "EM_ENTREGA" && tipoEntrega === "RETIRADA") novoStatusOperacao = "AGUARDANDO_RETIRADA";
+  if (novoStatusOperacao) dados.statusOperacao = novoStatusOperacao;
+
+  // ---- Pagamento
+  const novo = input.pagamento;
+  if (novo) {
+    const conta = pedido.contaReceber;
+    if (conta && Number(conta.saldo) < Number(conta.valorOriginal) - TOLERANCIA_CENTAVOS) {
+      throw new ErroPedido("Esta venda a prazo já recebeu pagamento. Para mudar, ajuste o recebimento em Contas a Receber.");
+    }
+    if (novo.modo === "A_PRAZO" && !clienteId) {
+      throw new ErroPedido("Para vender a prazo, escolha o cliente que vai pagar depois.");
+    }
+    if (novo.modo === "NO_RECEBIMENTO" && statusAtual === "ENTREGUE") {
+      throw new ErroPedido("A comanda já foi entregue: escolha como foi pago ou marque “a prazo (paga depois)”.");
+    }
+
+    const anterior = conta
+      ? `a prazo (venc. ${formatarDataCalendario(conta.vencimento)})`
+      : pedido.pagamentos.length
+        ? [...new Set(pedido.pagamentos.map((p) => NOMES_FORMA[p.forma] ?? p.forma))].join(" + ")
+        : "cobrar na retirada/entrega";
+
+    if (novo.modo === "PAGO") {
+      dados.statusPagamento = "PAGO";
+      dados.momentoPagamento = null;
+      dados.vencimento = null;
+      mudancas.push(`pagamento: ${anterior} → ${NOMES_FORMA[novo.forma]}`);
+    } else if (novo.modo === "A_PRAZO") {
+      dados.statusPagamento = "PENDENTE";
+      dados.momentoPagamento = null;
+      dados.vencimento = novo.vencimento;
+      mudancas.push(`pagamento: ${anterior} → a prazo (venc. ${formatarDataCalendario(novo.vencimento)})`);
+    } else {
+      dados.statusPagamento = "PENDENTE";
+      dados.momentoPagamento = tipoEntrega === "DELIVERY" ? "NA_ENTREGA" : "NA_RETIRADA";
+      dados.vencimento = null;
+      mudancas.push(`pagamento: ${anterior} → cobrar ${tipoEntrega === "DELIVERY" ? "na entrega" : "na retirada"}`);
+    }
+  } else if (input.tipoEntrega && pedido.momentoPagamento) {
+    // Ainda vai cobrar no recebimento: acompanha a troca retirada/entrega
+    dados.momentoPagamento = tipoEntrega === "DELIVERY" ? "NA_ENTREGA" : "NA_RETIRADA";
+  }
+
+  if (mudancas.length === 0 && !novoStatusOperacao) return obterPedido(pedidoId);
+
+  await prisma.$transaction(async (tx) => {
+    if (novo) {
+      // Refaz o financeiro da comanda do zero com a forma nova
+      await tx.pagamento.deleteMany({ where: { pedidoId } });
+      if (novo.modo === "A_PRAZO") {
+        await tx.contaReceber.upsert({
+          where: { pedidoId },
+          create: { pedidoId, clienteId: clienteId!, valorOriginal: total, saldo: total, vencimento: novo.vencimento, status: "PENDENTE" },
+          update: { clienteId: clienteId!, valorOriginal: total, saldo: total, vencimento: novo.vencimento, status: "PENDENTE" },
+        });
+      } else {
+        await tx.contaReceber.deleteMany({ where: { pedidoId } });
+        if (novo.modo === "PAGO" && total > TOLERANCIA_CENTAVOS) {
+          await tx.pagamento.create({ data: { pedidoId, forma: novo.forma, valor: total, usuarioId } });
+        }
+      }
+    } else if (input.clienteId && pedido.contaReceber && clienteId) {
+      await tx.contaReceber.update({ where: { pedidoId }, data: { clienteId } });
+    }
+
+    await tx.pedido.update({ where: { id: pedidoId }, data: dados });
+
+    if (novoStatusOperacao) {
+      await registrarHistoricoStatus(
+        tx,
+        pedidoId,
+        novoStatusOperacao,
+        novoStatusOperacao === "EM_ENTREGA" ? "Alterado para entrega" : "Alterado para retirada"
+      );
+    }
+  });
+
+  await registrarLog({
+    usuarioId,
+    acao: "ALTEROU_PAGAMENTO_ENTREGA_PEDIDO",
+    entidade: "pedido",
+    entidadeId: pedidoId,
+    detalhes: `Comanda ${pedido.numero}: ${mudancas.join("; ")}`,
   });
 
   return obterPedido(pedidoId);

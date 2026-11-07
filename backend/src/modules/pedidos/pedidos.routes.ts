@@ -15,6 +15,7 @@ import {
   adicionarItemPedido,
   alterarItemPedido,
   alterarPrecoItemPedido,
+  alterarPagamentoEEntrega,
   removerItemPedido,
   listarPainelDoDia,
   listarAgendados,
@@ -166,6 +167,32 @@ pedidosRouter.patch("/:id/itens/:itemId/preparo", async (req, res) => {
     }
     console.error(erro);
     return res.status(500).json({ erro: "Erro interno ao atualizar o corte." });
+  }
+});
+
+// Corrigir comanda fechada: forma de pagamento (inclusive a prazo), cliente, retirada/entrega
+const alterarComandaSchema = z.object({
+  pagamento: z
+    .discriminatedUnion("modo", [
+      z.object({ modo: z.literal("PAGO"), forma: z.enum(["DINHEIRO", "PIX", "CARTAO_DEBITO", "CARTAO_CREDITO", "TRANSFERENCIA", "OUTROS"]) }),
+      z.object({ modo: z.literal("A_PRAZO"), vencimento: z.coerce.date() }),
+      z.object({ modo: z.literal("NO_RECEBIMENTO") }),
+    ])
+    .optional(),
+  tipoEntrega: z.enum(["RETIRADA", "DELIVERY"]).optional(),
+  enderecoEntrega: z.string().max(300).optional(),
+  clienteId: z.string().uuid().optional(),
+});
+
+pedidosRouter.patch("/:id/alterar", async (req, res) => {
+  const validacao = alterarComandaSchema.safeParse(req.body);
+  if (!validacao.success) return res.status(400).json({ erro: validacao.error.issues[0].message });
+  try {
+    return res.json(await alterarPagamentoEEntrega(req.params.id, validacao.data, req.usuario!.id));
+  } catch (erro) {
+    if (erro instanceof ErroPedido) return res.status(400).json({ erro: erro.message });
+    console.error(erro);
+    return res.status(500).json({ erro: "Erro interno ao alterar a comanda." });
   }
 });
 

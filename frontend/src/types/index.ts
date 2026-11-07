@@ -19,6 +19,7 @@ export interface Cliente {
   endereco?: string | null;
   observacoes?: string | null;
   limiteCredito?: string | number | null;
+  prazoPadraoDias?: number | null;
   status: "ATIVO" | "INATIVO";
 }
 

@@ -1,4 +1,6 @@
 import { somentePapel } from "../../middlewares/permissoes";
+import { prisma } from "../../config/database";
+import { registrarLog } from "../../shared/registrarLog";
 import { Router } from "express";
 import { z } from "zod";
 import { autenticar } from "../../middlewares/autenticacao";
@@ -95,4 +97,45 @@ clientesRouter.patch("/:id/inativar", somentePapel("ADMINISTRATIVO"), async (req
 
   const cliente = await inativarCliente(req.params.id, req.usuario!.id);
   return res.json(cliente);
+});
+
+/**
+ * Excluir cliente.
+ * Sem comandas nem contas: apaga o cadastro.
+ * Com histórico: tira da lista (inativa), para não perder as comandas e o financeiro dele.
+ */
+clientesRouter.delete("/:id", somentePapel("ADMINISTRATIVO"), async (req, res) => {
+  const cliente = await prisma.cliente.findUnique({
+    where: { id: req.params.id },
+    include: { _count: { select: { pedidos: true, contasReceber: true } } },
+  });
+  if (!cliente) return res.status(404).json({ erro: "Cliente não encontrado." });
+
+  const contasAbertas = await prisma.contaReceber.count({
+    where: { clienteId: cliente.id, status: { in: ["PENDENTE", "PARCIAL", "VENCIDO"] } },
+  });
+  if (contasAbertas > 0) {
+    return res.status(400).json({
+      erro: `Este cliente ainda deve ${contasAbertas} conta(s) a prazo. Receba ou ajuste em Contas a Receber antes de excluir.`,
+    });
+  }
+
+  const temHistorico = cliente._count.pedidos > 0 || cliente._count.contasReceber > 0;
+  if (temHistorico) {
+    await prisma.cliente.update({ where: { id: cliente.id }, data: { status: "INATIVO" } });
+  } else {
+    await prisma.cliente.delete({ where: { id: cliente.id } });
+  }
+
+  await registrarLog({
+    usuarioId: req.usuario!.id,
+    acao: temHistorico ? "INATIVOU_CLIENTE" : "EXCLUIU_CLIENTE",
+    entidade: "cliente",
+    entidadeId: cliente.id,
+    detalhes: temHistorico
+      ? `Excluiu da lista o cliente ${cliente.nome} (mantido o histórico de ${cliente._count.pedidos} comanda(s))`
+      : `Excluiu o cliente ${cliente.nome}`,
+  });
+
+  return res.json({ excluido: !temHistorico, inativado: temHistorico, comandas: cliente._count.pedidos });
 });
