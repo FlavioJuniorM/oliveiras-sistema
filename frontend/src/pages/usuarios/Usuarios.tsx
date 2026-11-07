@@ -5,6 +5,8 @@ import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { StatusBadge } from "../../components/ui/StatusBadge";
+import { IconeLapis, IconeLixeira } from "../../components/ui/Icones";
+import { useAuth } from "../../contexts/AuthContext";
 
 interface UsuarioLista extends Usuario {
   login: string;
@@ -14,6 +16,10 @@ interface UsuarioLista extends Usuario {
 export function Usuarios() {
   const [usuarios, setUsuarios] = useState<UsuarioLista[]>([]);
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
+  const [edicao, setEdicao] = useState<UsuarioLista | null>(null);
+  const [exclusao, setExclusao] = useState<UsuarioLista | null>(null);
+  const [aviso, setAviso] = useState("");
+  const { usuario: eu } = useAuth();
 
   function carregar() {
     api<UsuarioLista[]>("/usuarios").then(setUsuarios);
@@ -38,23 +44,28 @@ export function Usuarios() {
         />
       )}
 
+      {aviso && <p role="status" className="rounded-lg bg-success/10 px-4 py-3 text-sm font-semibold text-success">{aviso}</p>}
+      {edicao && <ModalAlterarUsuario usuario={edicao} souEu={edicao.id === eu?.id} onFechar={() => setEdicao(null)} onSalvo={(u) => { setEdicao(null); setAviso(`Usuário ${u.nome} atualizado.`); carregar(); }} />}
+      {exclusao && <ModalExcluirUsuario usuario={exclusao} onFechar={() => setExclusao(null)} onExcluido={(mensagem) => { setExclusao(null); setAviso(mensagem); carregar(); }} />}
       <Card padded={false}>
         <div className="divide-y divide-border">
-          {usuarios.map((u) => (
-            <div key={u.id} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="font-medium text-ink">{u.nome}</p>
-                <p className="text-xs text-muted mt-0.5">{u.login}</p>
+          {usuarios.map((u) => {
+            const souEu = u.id === eu?.id;
+            return (
+            <div key={u.id} className={`flex flex-col gap-3 px-5 py-4 lg:flex-row lg:items-center lg:justify-between ${u.status === "INATIVO" ? "bg-background/60" : ""}`}>
+              <div className="min-w-0">
+                <p className="font-medium text-ink">{u.nome}{souEu && <span className="ml-2 rounded-full bg-gold/15 px-2 py-0.5 text-xs font-semibold text-gold-texto">você</span>}</p>
+                <p className="text-xs text-muted mt-0.5">Login: {u.login} · {u.papel === "ADMINISTRATIVO" ? "Administrativo" : "Funcionário"}</p>
               </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-xs font-medium text-muted">
-                  {u.papel === "ADMINISTRATIVO" ? "Administrativo" : "Funcionário"}
-                </span>
+              <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={u.status} />
                 <RedefinirSenha usuarioId={u.id} nome={u.nome} />
+                <Button variante="secundaria" onClick={() => setEdicao(u)}><IconeLapis tamanho={16} />Alterar</Button>
+                {!souEu && <Button variante="secundaria" className="!text-danger hover:!bg-danger/5" aria-label={`Excluir ${u.nome}`} onClick={() => setExclusao(u)}><IconeLixeira tamanho={16} />Excluir</Button>}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </Card>
     </div>
@@ -148,4 +159,105 @@ function RedefinirSenha({ usuarioId, nome }: { usuarioId: string; nome: string }
 
   if (!aberto) return <>{mensagem && <span className="text-xs font-semibold text-success">{mensagem}</span>}<Button variante="fantasma" onClick={() => { setAberto(true); setMensagem(""); }}>Redefinir senha</Button></>;
   return <div className="flex flex-wrap items-center gap-2"><input type="password" placeholder="Nova senha (mín. 8)" value={senha} onChange={(e) => setSenha(e.target.value)} className="h-10 rounded-lg border border-border px-3 text-sm" aria-label={`Nova senha para ${nome}`} autoFocus /><Button disabled={salvando || senha.length < 8} onClick={salvar}>{salvando ? "..." : "Salvar"}</Button><Button variante="secundaria" onClick={() => { setAberto(false); setErro(""); }}>Cancelar</Button>{erro && <span className="w-full text-xs text-danger">{erro}</span>}</div>;
+}
+
+function Modal({ titulo, onFechar, children }: { titulo: string; onFechar: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 sm:items-center sm:px-4" onClick={onFechar}>
+      <div role="dialog" aria-modal="true" aria-label={titulo} className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-card bg-surface p-5 shadow-2xl sm:rounded-card sm:p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3">
+          <p className="font-display text-2xl uppercase text-ink">{titulo}</p>
+          <button type="button" onClick={onFechar} aria-label="Fechar" className="h-10 w-10 shrink-0 text-2xl text-muted">×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ModalAlterarUsuario({ usuario, souEu, onFechar, onSalvo }: { usuario: UsuarioLista; souEu: boolean; onFechar: () => void; onSalvo: (u: UsuarioLista) => void }) {
+  const [nome, setNome] = useState(usuario.nome);
+  const [login, setLogin] = useState(usuario.login);
+  const [papel, setPapel] = useState(usuario.papel);
+  const [status, setStatus] = useState(usuario.status);
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  async function salvar(evento: FormEvent) {
+    evento.preventDefault();
+    setErro("");
+    setSalvando(true);
+    try {
+      onSalvo(await api<UsuarioLista>(`/usuarios/${usuario.id}`, { method: "PUT", body: { nome, login: login.trim(), papel, status } }));
+    } catch (e) {
+      setErro(e instanceof ErroApi ? e.message : "Não foi possível alterar o usuário.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  const opcao = (ativo: boolean) => `min-h-11 rounded-lg border-2 px-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${ativo ? "border-primary bg-primary/[0.07] text-primary" : "border-border bg-white text-ink hover:border-primary/50"}`;
+
+  return (
+    <Modal titulo="Alterar usuário" onFechar={onFechar}>
+      <form onSubmit={salvar} className="mt-4 flex flex-col gap-4">
+        <Input label="Nome" value={nome} onChange={(e) => setNome(e.target.value)} required />
+        <Input label="Login (usado para entrar)" value={login} onChange={(e) => setLogin(e.target.value)} autoCapitalize="none" required />
+        <fieldset>
+          <legend className="text-sm font-medium text-ink">Papel</legend>
+          <div className="mt-1.5 grid grid-cols-2 gap-2">
+            <button type="button" disabled={souEu} aria-pressed={papel === "FUNCIONARIO"} onClick={() => setPapel("FUNCIONARIO")} className={opcao(papel === "FUNCIONARIO")}>Funcionário</button>
+            <button type="button" disabled={souEu} aria-pressed={papel === "ADMINISTRATIVO"} onClick={() => setPapel("ADMINISTRATIVO")} className={opcao(papel === "ADMINISTRATIVO")}>Administrativo</button>
+          </div>
+          <p className="mt-1.5 text-xs text-muted">Funcionário: balcão e pedidos. Administrativo: também financeiro, relatórios e usuários.</p>
+        </fieldset>
+        <fieldset>
+          <legend className="text-sm font-medium text-ink">Acesso</legend>
+          <div className="mt-1.5 grid grid-cols-2 gap-2">
+            <button type="button" disabled={souEu} aria-pressed={status === "ATIVO"} onClick={() => setStatus("ATIVO")} className={opcao(status === "ATIVO")}>Ativo (pode entrar)</button>
+            <button type="button" disabled={souEu} aria-pressed={status === "INATIVO"} onClick={() => setStatus("INATIVO")} className={opcao(status === "INATIVO")}>Inativo (bloqueado)</button>
+          </div>
+          {souEu && <p className="mt-1.5 text-xs text-muted">Você não pode mudar o papel nem bloquear o seu próprio usuário.</p>}
+        </fieldset>
+        <p className="text-xs text-muted">Para trocar a senha, use “Redefinir senha” na lista.</p>
+        {erro && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variante="secundaria" onClick={onFechar}>Cancelar</Button>
+          <Button type="submit" disabled={salvando}>{salvando ? "Salvando..." : "Salvar alterações"}</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function ModalExcluirUsuario({ usuario, onFechar, onExcluido }: { usuario: UsuarioLista; onFechar: () => void; onExcluido: (mensagem: string) => void }) {
+  const [erro, setErro] = useState("");
+  const [excluindo, setExcluindo] = useState(false);
+
+  async function excluir() {
+    setErro("");
+    setExcluindo(true);
+    try {
+      const r = await api<{ excluido: boolean; desativado: boolean }>(`/usuarios/${usuario.id}`, { method: "DELETE" });
+      onExcluido(r.desativado ? `${usuario.nome} não consegue mais entrar. O nome dele continua no histórico das comandas.` : `${usuario.nome} foi excluído.`);
+    } catch (e) {
+      setErro(e instanceof ErroApi ? e.message : "Não foi possível excluir o usuário.");
+      setExcluindo(false);
+    }
+  }
+
+  return (
+    <Modal titulo="Excluir usuário?" onFechar={onFechar}>
+      <div className="mt-4 rounded-lg bg-background p-4 text-sm">
+        <p className="font-semibold text-ink">{usuario.nome}</p>
+        <p className="text-muted">Login: {usuario.login} · {usuario.papel === "ADMINISTRATIVO" ? "Administrativo" : "Funcionário"}</p>
+      </div>
+      <p className="mt-4 text-sm text-ink">Ele perde o acesso na hora, mesmo se estiver com o sistema aberto. Se já trabalhou em comandas, o nome dele continua no histórico (fica como “Inativo” na lista).</p>
+      {erro && <p role="alert" className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
+      <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <Button variante="secundaria" onClick={onFechar}>Não, manter</Button>
+        <Button variante="perigo" disabled={excluindo} onClick={excluir}><IconeLixeira tamanho={16} />{excluindo ? "Excluindo..." : "Sim, excluir"}</Button>
+      </div>
+    </Modal>
+  );
 }

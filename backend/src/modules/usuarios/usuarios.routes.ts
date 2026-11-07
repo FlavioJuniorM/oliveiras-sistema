@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { autenticar } from "../../middlewares/autenticacao";
 import { somentePapel } from "../../middlewares/permissoes";
-import { criarUsuario, inativarUsuario, listarUsuarios } from "./usuarios.service";
+import { alterarUsuario, criarUsuario, ErroUsuario, excluirUsuario, inativarUsuario, listarUsuarios } from "./usuarios.service";
 import { ErroAutenticacao, redefinirSenhaUsuario, validarNovaSenha } from "../auth/auth.service";
 
 export const usuariosRouter = Router();
@@ -63,5 +63,35 @@ usuariosRouter.patch("/:id/senha", async (req, res) => {
     if (erro instanceof ErroAutenticacao) return res.status(400).json({ erro: erro.message });
     console.error(erro);
     return res.status(500).json({ erro: "Erro interno ao redefinir a senha." });
+  }
+});
+
+const alterarUsuarioSchema = z.object({
+  nome: z.string().trim().min(2, "Informe o nome."),
+  login: z.string().trim().min(3, "O login precisa ter pelo menos 3 letras.").regex(/^\S+$/, "O login não pode ter espaços."),
+  papel: z.enum(["FUNCIONARIO", "ADMINISTRATIVO"]),
+  status: z.enum(["ATIVO", "INATIVO"]),
+});
+
+usuariosRouter.put("/:id", async (req, res) => {
+  const validacao = alterarUsuarioSchema.safeParse(req.body);
+  if (!validacao.success) return res.status(400).json({ erro: validacao.error.issues[0].message });
+  try {
+    return res.json(await alterarUsuario(req.params.id, validacao.data, req.usuario!.id));
+  } catch (erro: any) {
+    if (erro instanceof ErroUsuario) return res.status(400).json({ erro: erro.message });
+    if (erro?.code === "P2002") return res.status(409).json({ erro: "Já existe outro usuário com esse login." });
+    console.error(erro);
+    return res.status(500).json({ erro: "Erro interno ao alterar o usuário." });
+  }
+});
+
+usuariosRouter.delete("/:id", async (req, res) => {
+  try {
+    return res.json(await excluirUsuario(req.params.id, req.usuario!.id));
+  } catch (erro) {
+    if (erro instanceof ErroUsuario) return res.status(400).json({ erro: erro.message });
+    console.error(erro);
+    return res.status(500).json({ erro: "Erro interno ao excluir o usuário." });
   }
 });
