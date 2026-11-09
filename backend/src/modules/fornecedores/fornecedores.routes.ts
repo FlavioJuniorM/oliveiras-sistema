@@ -1,3 +1,4 @@
+import { fornecedoresDuplicados, mensagemDuplicidade, temDuplicidade } from "../../shared/duplicidade";
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../../config/database";
@@ -60,13 +61,22 @@ fornecedoresRouter.get("/", async (req, res) => {
   return res.json(fornecedores.map((f) => ({ ...f, quantidadeContas: porNome.get(f.nome.toLowerCase()) ?? 0 })));
 });
 
+// Verificação de duplicados enquanto digita (nome ou CNPJ/CPF)
+fornecedoresRouter.get("/duplicados", async (req, res) => {
+  const q = req.query as Record<string, string | undefined>;
+  return res.json(await fornecedoresDuplicados({ nome: q.nome, documento: q.documento, ignorarId: q.ignorarId }));
+});
+
 fornecedoresRouter.post("/", async (req, res) => {
   const validacao = fornecedorSchema.safeParse(req.body);
   if (!validacao.success) return res.status(400).json({ erro: validacao.error.issues[0].message });
 
-  // Evita "Frigorífico X" e "frigorífico x" como dois cadastros
-  const existente = await prisma.fornecedor.findFirst({ where: { nome: { equals: validacao.data.nome, mode: "insensitive" } } });
-  if (existente) return res.status(409).json({ erro: `“${existente.nome}” já está cadastrado.`, fornecedor: existente });
+  // Evita "Frigorífico X", "frigorifico x" ou o mesmo CNPJ como dois cadastros
+  const duplicados = await fornecedoresDuplicados(validacao.data);
+  if (temDuplicidade(duplicados)) {
+    const existente = await prisma.fornecedor.findUnique({ where: { id: duplicados.bloqueio[0].id } });
+    return res.status(409).json({ erro: mensagemDuplicidade("um fornecedor", duplicados), duplicados, podeContinuar: false, fornecedor: existente });
+  }
 
   try {
     const fornecedor = await prisma.fornecedor.create({ data: validacao.data });
@@ -92,10 +102,10 @@ fornecedoresRouter.put("/:id", async (req, res) => {
   const atual = await prisma.fornecedor.findUnique({ where: { id: req.params.id } });
   if (!atual) return res.status(404).json({ erro: "Fornecedor não encontrado." });
 
-  const outro = await prisma.fornecedor.findFirst({
-    where: { id: { not: atual.id }, nome: { equals: validacao.data.nome, mode: "insensitive" } },
-  });
-  if (outro) return res.status(409).json({ erro: `Já existe outro fornecedor chamado “${outro.nome}”.` });
+  const duplicados = await fornecedoresDuplicados({ ...validacao.data, ignorarId: atual.id });
+  if (temDuplicidade(duplicados)) {
+    return res.status(409).json({ erro: mensagemDuplicidade("outro fornecedor", duplicados), duplicados, podeContinuar: false });
+  }
 
   try {
     const fornecedor = await prisma.$transaction(async (tx) => {

@@ -7,6 +7,8 @@ interface CriarUsuarioInput {
   login: string;
   senha: string;
   papel: "FUNCIONARIO" | "ADMINISTRATIVO";
+  email?: string | null;
+  avisosEmail?: boolean;
   criadoPorId: string;
 }
 
@@ -18,6 +20,8 @@ export async function listarUsuarios() {
       login: true,
       papel: true,
       status: true,
+      email: true,
+      avisosEmail: true,
       criadoEm: true,
     },
     orderBy: { nome: "asc" },
@@ -33,6 +37,8 @@ export async function criarUsuario(input: CriarUsuarioInput) {
       login: input.login,
       senhaHash,
       papel: input.papel,
+      email: input.email ?? null,
+      avisosEmail: input.avisosEmail ?? true,
     },
   });
 
@@ -79,7 +85,7 @@ async function garantirOutroAdministrador(usuarioId: string) {
 
 export async function alterarUsuario(
   usuarioId: string,
-  dados: { nome: string; login: string; papel: "FUNCIONARIO" | "ADMINISTRATIVO"; status: "ATIVO" | "INATIVO" },
+  dados: { nome: string; login: string; papel: "FUNCIONARIO" | "ADMINISTRATIVO"; status: "ATIVO" | "INATIVO"; email?: string | null; avisosEmail?: boolean },
   executadoPorId: string
 ) {
   const atual = await prisma.usuario.findUnique({ where: { id: usuarioId } });
@@ -99,7 +105,7 @@ export async function alterarUsuario(
   const usuario = await prisma.usuario.update({
     where: { id: usuarioId },
     data: dados,
-    select: { id: true, nome: true, login: true, papel: true, status: true, criadoEm: true },
+    select: { id: true, nome: true, login: true, papel: true, status: true, email: true, avisosEmail: true, criadoEm: true },
   });
 
   const mudancas = [
@@ -107,6 +113,7 @@ export async function alterarUsuario(
     atual.login !== usuario.login && `login: ${atual.login} → ${usuario.login}`,
     atual.papel !== usuario.papel && `papel: ${atual.papel} → ${usuario.papel}`,
     atual.status !== usuario.status && `status: ${atual.status} → ${usuario.status}`,
+    (atual.email ?? null) !== (usuario.email ?? null) && `e-mail: ${usuario.email || "removido"}`,
   ].filter(Boolean);
 
   await registrarLog({

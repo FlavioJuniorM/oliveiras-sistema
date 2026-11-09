@@ -14,8 +14,10 @@ usuariosRouter.use(autenticar, somentePapel("ADMINISTRATIVO"));
 const criarUsuarioSchema = z.object({
   nome: z.string().min(2),
   login: z.string().min(3),
-  senha: z.string().min(6, "A senha deve ter no mínimo 6 caracteres."),
+  senha: z.string().min(8, "A senha deve ter pelo menos 8 caracteres."),
   papel: z.enum(["FUNCIONARIO", "ADMINISTRATIVO"]),
+  email: z.string().trim().max(120).email("E-mail inválido.").or(z.literal("")).nullable().optional().transform((v) => v || null),
+  avisosEmail: z.boolean().optional(),
 });
 
 usuariosRouter.get("/", async (_req, res) => {
@@ -71,6 +73,8 @@ const alterarUsuarioSchema = z.object({
   login: z.string().trim().min(3, "O login precisa ter pelo menos 3 letras.").regex(/^\S+$/, "O login não pode ter espaços."),
   papel: z.enum(["FUNCIONARIO", "ADMINISTRATIVO"]),
   status: z.enum(["ATIVO", "INATIVO"]),
+  email: z.string().trim().max(120).email("E-mail inválido.").or(z.literal("")).nullable().optional().transform((v) => v || null),
+  avisosEmail: z.boolean().optional(),
 });
 
 usuariosRouter.put("/:id", async (req, res) => {

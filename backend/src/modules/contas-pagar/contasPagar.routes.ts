@@ -1,3 +1,4 @@
+import { contasDuplicadas, digitos, mensagemDuplicidade } from "../../shared/duplicidade";
 import { Router } from "express";
 import { z } from "zod";
 import { autenticar } from "../../middlewares/autenticacao";
@@ -37,6 +38,14 @@ const CATEGORIAS_CONTA = [
   "Outros",
 ] as const;
 
+const codigoBarrasSchema = z
+  .string()
+  .max(80)
+  .nullable()
+  .optional()
+  .transform((v) => digitos(v) || null)
+  .refine((v) => !v || (v.length >= 10 && v.length <= 60), { message: "Código de barras inválido: confira os números do boleto." });
+
 const criarContaPagarSchema = z.object({
   fornecedor: z.string().min(2),
   descricao: z.string().min(2),
@@ -56,8 +65,26 @@ const criarContaPagarSchema = z.object({
   // Boleto dividido em dois: o valor é repartido ao meio entre as duas datas
   segundoVencimento: z.coerce.date().optional(),
   observacoes: z.string().optional(),
+  // Código de barras / linha digitável (opcional) — só os números são guardados
+  codigoBarras: codigoBarrasSchema,
+  codigoBarras2: codigoBarrasSchema,
 }).refine((d) => !d.segundoVencimento || d.segundoVencimento > d.vencimento, {
   message: "A segunda data do boleto precisa ser depois da primeira.",
+});
+
+// Verificação de duplicados enquanto digita
+contasPagarRouter.get("/duplicadas", async (req, res) => {
+  const q = req.query as Record<string, string | undefined>;
+  const vencimento = q.vencimento ? new Date(`${q.vencimento}T00:00:00Z`) : undefined;
+  return res.json(
+    await contasDuplicadas({
+      codigosBarras: [q.codigoBarras, q.codigoBarras2],
+      fornecedor: q.fornecedor,
+      valor: q.valor ? Number(q.valor) : undefined,
+      vencimento,
+      ignorarId: q.ignorarId,
+    })
+  );
 });
 
 contasPagarRouter.post("/", async (req, res) => {
@@ -66,9 +93,23 @@ contasPagarRouter.post("/", async (req, res) => {
     return res.status(400).json({ erro: validacao.error.issues[0].message });
   }
 
-  const { segundoVencimento, ...dados } = validacao.data;
+  const { segundoVencimento, codigoBarras2, ...dados } = validacao.data;
+
+  // Mesmo código de barras: bloqueia. Mesmo fornecedor + valor + vencimento: avisa e pede confirmação.
+  const codigos = [dados.codigoBarras, segundoVencimento ? codigoBarras2 : null];
+  if (codigos[0] && codigos[0] === codigos[1]) {
+    return res.status(400).json({ erro: "Os dois boletos estão com o mesmo código de barras." });
+  }
+  const duplicados = await contasDuplicadas({
+    codigosBarras: codigos,
+    ...(segundoVencimento ? {} : { fornecedor: dados.fornecedor, valor: dados.valor, vencimento: dados.vencimento }),
+  });
+  if (duplicados.bloqueio.length || (duplicados.aviso.length && req.body?.ignorarAviso !== true)) {
+    return res.status(409).json({ erro: mensagemDuplicidade("uma conta", duplicados), duplicados, podeContinuar: duplicados.bloqueio.length === 0 });
+  }
+
   if (segundoVencimento) {
-    const contas = await criarContaPagarDividida({ ...dados, segundoVencimento, criadoPorId: req.usuario!.id });
+    const contas = await criarContaPagarDividida({ ...dados, segundoVencimento, codigoBarras2, criadoPorId: req.usuario!.id });
     return res.status(201).json(contas);
   }
 
@@ -115,6 +156,7 @@ const alterarContaPagarSchema = z.object({
   dataLancamento: z.coerce.date(),
   vencimento: z.coerce.date(),
   observacoes: z.string().nullable().optional(),
+  codigoBarras: codigoBarrasSchema,
 });
 
 contasPagarRouter.put("/:id", async (req, res) => {
@@ -122,6 +164,17 @@ contasPagarRouter.put("/:id", async (req, res) => {
   if (!validacao.success) {
     return res.status(400).json({ erro: validacao.error.issues[0].message });
   }
+  const duplicados = await contasDuplicadas({
+    codigosBarras: [validacao.data.codigoBarras],
+    fornecedor: validacao.data.fornecedor,
+    valor: validacao.data.valor,
+    vencimento: validacao.data.vencimento,
+    ignorarId: req.params.id,
+  });
+  if (duplicados.bloqueio.length || (duplicados.aviso.length && req.body?.ignorarAviso !== true)) {
+    return res.status(409).json({ erro: mensagemDuplicidade("outra conta", duplicados), duplicados, podeContinuar: duplicados.bloqueio.length === 0 });
+  }
+
   try {
     const conta = await alterarContaPagar(req.params.id, validacao.data, req.usuario!.id);
     return res.json(conta);

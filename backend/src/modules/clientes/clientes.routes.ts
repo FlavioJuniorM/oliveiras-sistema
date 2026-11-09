@@ -1,3 +1,4 @@
+import { clientesDuplicados, mensagemDuplicidade, temDuplicidade } from "../../shared/duplicidade";
 import { somentePapel } from "../../middlewares/permissoes";
 import { prisma } from "../../config/database";
 import { registrarLog } from "../../shared/registrarLog";
@@ -42,6 +43,12 @@ clientesRouter.get("/", async (req, res) => {
   return res.json(clientes);
 });
 
+// Verificação de duplicados enquanto digita (CPF/CNPJ, telefone, nome)
+clientesRouter.get("/duplicados", async (req, res) => {
+  const q = req.query as Record<string, string | undefined>;
+  return res.json(await clientesDuplicados({ nome: q.nome, documento: q.documento, telefone: q.telefone, whatsapp: q.whatsapp, ignorarId: q.ignorarId }));
+});
+
 clientesRouter.get("/:id", async (req, res) => {
   const cliente = await obterCliente(req.params.id);
   if (!cliente) {
@@ -66,6 +73,12 @@ clientesRouter.post("/", async (req, res) => {
     return res.status(400).json({ erro: validacao.error.issues[0].message });
   }
 
+  // Mesmo CPF/CNPJ: bloqueia. Mesmo telefone ou nome: avisa e só salva se confirmar.
+  const duplicados = await clientesDuplicados(validacao.data);
+  if (duplicados.bloqueio.length || (duplicados.aviso.length && req.body?.ignorarAviso !== true)) {
+    return res.status(409).json({ erro: mensagemDuplicidade("um cliente", duplicados), duplicados, podeContinuar: duplicados.bloqueio.length === 0 });
+  }
+
   const cliente = await criarCliente({
     ...validacao.data,
     criadoPorId: req.usuario!.id,
@@ -79,6 +92,11 @@ clientesRouter.put("/:id", async (req, res) => {
 
   if (!validacao.success) {
     return res.status(400).json({ erro: validacao.error.issues[0].message });
+  }
+
+  const duplicados = await clientesDuplicados({ ...validacao.data, ignorarId: req.params.id });
+  if (duplicados.bloqueio.length || (duplicados.aviso.length && req.body?.ignorarAviso !== true)) {
+    return res.status(409).json({ erro: mensagemDuplicidade("outro cliente", duplicados), duplicados, podeContinuar: duplicados.bloqueio.length === 0 });
   }
 
   const cliente = await atualizarCliente(req.params.id, {

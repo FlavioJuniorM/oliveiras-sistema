@@ -13,6 +13,7 @@ interface CriarContaPagarInput {
   dataLancamento: Date;
   vencimento: Date;
   observacoes?: string;
+  codigoBarras?: string | null;
   criadoPorId: string;
 }
 
@@ -66,14 +67,14 @@ export async function criarContaPagar(input: CriarContaPagarInput) {
  * Se o valor não divide exato, o centavo que sobra vai para a primeira parcela.
  */
 export async function criarContaPagarDividida(
-  input: CriarContaPagarInput & { segundoVencimento: Date }
+  input: CriarContaPagarInput & { segundoVencimento: Date; codigoBarras2?: string | null }
 ) {
-  const { criadoPorId, segundoVencimento, descricao, valor, ...dados } = input;
+  const { criadoPorId, segundoVencimento, descricao, valor, codigoBarras, codigoBarras2, ...dados } = input;
   const totalCentavos = Math.round(valor * 100);
   const segundaCentavos = Math.floor(totalCentavos / 2);
   const parcelas = [
-    { valor: (totalCentavos - segundaCentavos) / 100, vencimento: dados.vencimento, sufixo: "1/2" },
-    { valor: segundaCentavos / 100, vencimento: segundoVencimento, sufixo: "2/2" },
+    { valor: (totalCentavos - segundaCentavos) / 100, vencimento: dados.vencimento, sufixo: "1/2", codigo: codigoBarras || null },
+    { valor: segundaCentavos / 100, vencimento: segundoVencimento, sufixo: "2/2", codigo: codigoBarras2 || null },
   ];
 
   const contas = await prisma.$transaction(
@@ -84,6 +85,7 @@ export async function criarContaPagarDividida(
           descricao: `${descricao} (boleto ${p.sufixo})`,
           valor: p.valor,
           vencimento: p.vencimento,
+          codigoBarras: p.codigo,
           status: "PENDENTE",
         },
       })
@@ -164,6 +166,7 @@ export async function excluirLancamentoContaPagar(id: string, usuarioId: string)
 }
 
 interface AlterarContaPagarInput {
+  codigoBarras?: string | null;
   fornecedor: string;
   descricao: string;
   categoria: string;
@@ -192,7 +195,7 @@ export async function alterarContaPagar(id: string, dados: AlterarContaPagarInpu
 
   const atualizada = await prisma.contaPagar.update({
     where: { id },
-    data: { ...dados, observacoes: dados.observacoes || null, status },
+    data: { ...dados, observacoes: dados.observacoes || null, codigoBarras: dados.codigoBarras || null, status },
   });
 
   await registrarLog({

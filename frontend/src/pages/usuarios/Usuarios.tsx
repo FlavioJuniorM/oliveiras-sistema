@@ -11,6 +11,8 @@ import { useAuth } from "../../contexts/AuthContext";
 interface UsuarioLista extends Usuario {
   login: string;
   status: string;
+  email?: string | null;
+  avisosEmail?: boolean;
 }
 
 export function Usuarios() {
@@ -47,6 +49,7 @@ export function Usuarios() {
       {aviso && <p role="status" className="rounded-lg bg-success/10 px-4 py-3 text-sm font-semibold text-success">{aviso}</p>}
       {edicao && <ModalAlterarUsuario usuario={edicao} souEu={edicao.id === eu?.id} onFechar={() => setEdicao(null)} onSalvo={(u) => { setEdicao(null); setAviso(`Usuário ${u.nome} atualizado.`); carregar(); }} />}
       {exclusao && <ModalExcluirUsuario usuario={exclusao} onFechar={() => setExclusao(null)} onExcluido={(mensagem) => { setExclusao(null); setAviso(mensagem); carregar(); }} />}
+      <CartaoAvisoEmail />
       <Card padded={false}>
         <div className="divide-y divide-border">
           {usuarios.map((u) => {
@@ -56,6 +59,7 @@ export function Usuarios() {
               <div className="min-w-0">
                 <p className="font-medium text-ink">{u.nome}{souEu && <span className="ml-2 rounded-full bg-gold/15 px-2 py-0.5 text-xs font-semibold text-gold-texto">você</span>}</p>
                 <p className="text-xs text-muted mt-0.5">Login: {u.login} · {u.papel === "ADMINISTRATIVO" ? "Administrativo" : "Funcionário"}</p>
+                <p className="text-xs mt-0.5">{u.email ? <span className="text-ink">✉ {u.email}{u.papel === "ADMINISTRATIVO" && u.avisosEmail ? <span className="ml-1 text-success">· recebe o aviso das contas</span> : ""}</span> : <span className="text-muted">Sem e-mail</span>}</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={u.status} />
@@ -77,6 +81,7 @@ function FormularioUsuario({ onCancelar, onCriado }: { onCancelar: () => void; o
   const [login, setLogin] = useState("");
   const [senha, setSenha] = useState("");
   const [papel, setPapel] = useState<"FUNCIONARIO" | "ADMINISTRATIVO">("FUNCIONARIO");
+  const [email, setEmail] = useState("");
   const [erro, setErro] = useState("");
   const [enviando, setEnviando] = useState(false);
 
@@ -85,7 +90,7 @@ function FormularioUsuario({ onCancelar, onCriado }: { onCancelar: () => void; o
     setErro("");
     setEnviando(true);
     try {
-      await api("/usuarios", { method: "POST", body: { nome, login, senha, papel } });
+      await api("/usuarios", { method: "POST", body: { nome, login, senha, papel, email: email.trim() || null } });
       onCriado();
     } catch (e) {
       setErro(e instanceof ErroApi ? e.message : "Erro ao criar usuário.");
@@ -116,6 +121,11 @@ function FormularioUsuario({ onCancelar, onCriado }: { onCancelar: () => void; o
             <option value="FUNCIONARIO">Funcionário</option>
             <option value="ADMINISTRATIVO">Administrativo</option>
           </select>
+        </div>
+
+        <div className="sm:col-span-2">
+          <Input label="E-mail (opcional)" type="email" placeholder="para receber o aviso das contas do dia" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <p className="mt-1 text-xs text-muted">Administradores com e-mail recebem todo dia de manhã o resumo das contas a pagar.</p>
         </div>
 
         {erro && <p className="text-sm text-danger sm:col-span-2">{erro}</p>}
@@ -180,6 +190,8 @@ function ModalAlterarUsuario({ usuario, souEu, onFechar, onSalvo }: { usuario: U
   const [login, setLogin] = useState(usuario.login);
   const [papel, setPapel] = useState(usuario.papel);
   const [status, setStatus] = useState(usuario.status);
+  const [email, setEmail] = useState(usuario.email ?? "");
+  const [avisosEmail, setAvisosEmail] = useState(usuario.avisosEmail ?? true);
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
 
@@ -188,7 +200,7 @@ function ModalAlterarUsuario({ usuario, souEu, onFechar, onSalvo }: { usuario: U
     setErro("");
     setSalvando(true);
     try {
-      onSalvo(await api<UsuarioLista>(`/usuarios/${usuario.id}`, { method: "PUT", body: { nome, login: login.trim(), papel, status } }));
+      onSalvo(await api<UsuarioLista>(`/usuarios/${usuario.id}`, { method: "PUT", body: { nome, login: login.trim(), papel, status, email: email.trim() || null, avisosEmail } }));
     } catch (e) {
       setErro(e instanceof ErroApi ? e.message : "Não foi possível alterar o usuário.");
     } finally {
@@ -219,6 +231,14 @@ function ModalAlterarUsuario({ usuario, souEu, onFechar, onSalvo }: { usuario: U
           </div>
           {souEu && <p className="mt-1.5 text-xs text-muted">Você não pode mudar o papel nem bloquear o seu próprio usuário.</p>}
         </fieldset>
+        <div className="rounded-lg border border-border bg-background p-3">
+          <Input label="E-mail" type="email" placeholder="nome@exemplo.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <label className="mt-3 flex min-h-11 cursor-pointer items-center gap-3 text-sm text-ink">
+            <input type="checkbox" className="h-5 w-5 accent-primary" checked={avisosEmail} onChange={(e) => setAvisosEmail(e.target.checked)} disabled={papel !== "ADMINISTRATIVO"} />
+            Receber todo dia o e-mail com as contas a pagar
+          </label>
+          {papel !== "ADMINISTRATIVO" && <p className="text-xs text-muted">Só administradores recebem o resumo financeiro.</p>}
+        </div>
         <p className="text-xs text-muted">Para trocar a senha, use “Redefinir senha” na lista.</p>
         {erro && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -259,5 +279,65 @@ function ModalExcluirUsuario({ usuario, onFechar, onExcluido }: { usuario: Usuar
         <Button variante="perigo" disabled={excluindo} onClick={excluir}><IconeLixeira tamanho={16} />{excluindo ? "Excluindo..." : "Sim, excluir"}</Button>
       </div>
     </Modal>
+  );
+}
+
+/** Situação do e-mail diário de contas a pagar + botão para testar. */
+function CartaoAvisoEmail() {
+  const [status, setStatus] = useState<{ emailConfigurado: boolean; agendado: boolean } | null>(null);
+  const [mensagem, setMensagem] = useState("");
+  const [erro, setErro] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [previa, setPrevia] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<{ emailConfigurado: boolean; agendado: boolean }>("/avisos/status").then(setStatus).catch(() => setStatus(null));
+  }, []);
+
+  async function testar() {
+    setErro(""); setMensagem(""); setEnviando(true);
+    try {
+      const r = await api<{ para: string }>("/avisos/teste", { method: "POST" });
+      setMensagem(`E-mail de teste enviado para ${r.para}. Confira a caixa de entrada (e o spam).`);
+    } catch (e) {
+      setErro(e instanceof ErroApi ? e.message : "Não foi possível enviar.");
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  async function verPrevia() {
+    try { setPrevia((await api<{ html: string }>("/avisos/previa")).html); } catch { setErro("Não foi possível montar a prévia."); }
+  }
+
+  const pronto = status?.emailConfigurado && status?.agendado;
+  return (
+    <Card>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <p className="font-semibold text-ink">✉ Aviso diário das contas a pagar</p>
+          <p className="mt-1 text-sm text-muted">Todo dia, às 7h, os administradores com e-mail recebem quais contas vencem no dia (e as atrasadas), com os códigos de barras.</p>
+          {status && (
+            <p className={`mt-2 text-sm font-semibold ${pronto ? "text-success" : "text-gold-texto"}`}>
+              {pronto ? "● Envio automático ligado" : "● Falta configurar o envio no servidor (veja as instruções que o suporte passou)"}
+            </p>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Button variante="secundaria" onClick={verPrevia}>Ver prévia</Button>
+          <Button disabled={enviando || !status?.emailConfigurado} onClick={testar}>{enviando ? "Enviando..." : "Enviar teste para mim"}</Button>
+        </div>
+      </div>
+      {mensagem && <p role="status" className="mt-3 rounded-lg bg-success/10 px-3 py-2 text-sm text-success">{mensagem}</p>}
+      {erro && <p role="alert" className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
+      {previa && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 sm:items-center sm:px-4" onClick={() => setPrevia(null)}>
+          <div role="dialog" aria-modal="true" aria-label="Prévia do e-mail" className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-card bg-white p-4 shadow-2xl sm:rounded-card" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between"><p className="font-display text-xl uppercase text-ink">Prévia do e-mail de hoje</p><button type="button" aria-label="Fechar" onClick={() => setPrevia(null)} className="h-10 w-10 text-2xl text-muted">×</button></div>
+            <iframe title="Prévia do e-mail" sandbox="" srcDoc={previa} className="h-[70vh] w-full rounded-lg border border-border" />
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }

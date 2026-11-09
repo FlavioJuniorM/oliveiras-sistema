@@ -11,9 +11,12 @@ interface OpcoesRequisicao {
 
 export class ErroApi extends Error {
   status: number;
-  constructor(mensagem: string, status: number) {
+  /** Corpo completo da resposta de erro (ex.: lista de duplicados no 409) */
+  dados: Record<string, unknown>;
+  constructor(mensagem: string, status: number, dados: Record<string, unknown> = {}) {
     super(mensagem);
     this.status = status;
+    this.dados = dados;
   }
 }
 
@@ -36,7 +39,7 @@ export async function api<T = unknown>(caminho: string, opcoes: OpcoesRequisicao
   const dados = await resposta.json().catch(() => ({}));
 
   if (!resposta.ok) {
-    throw new ErroApi(dados.erro || "Erro inesperado ao comunicar com o servidor.", resposta.status);
+    throw new ErroApi(dados.erro || "Erro inesperado ao comunicar com o servidor.", resposta.status, dados);
   }
 
   return dados as T;

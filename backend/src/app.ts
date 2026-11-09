@@ -1,5 +1,6 @@
 import cors from "cors";
 import express from "express";
+import helmet from "helmet";
 import { authRouter } from "./modules/auth/auth.routes";
 import { usuariosRouter } from "./modules/usuarios/usuarios.routes";
 import { clientesRouter } from "./modules/clientes/clientes.routes";
@@ -16,25 +17,31 @@ import { motoboysRouter } from "./modules/motoboys/motoboys.routes";
 import { caixaRouter } from "./modules/caixa/caixa.routes";
 import { fornecedoresRouter } from "./modules/fornecedores/fornecedores.routes";
 import { funcionariosRouter } from "./modules/funcionarios/funcionarios.routes";
+import { avisosRouter } from "./modules/avisos/avisos.routes";
 
 export const app = express();
 // Atrás do proxy da Vercel: necessário para enxergar o IP real do cliente
 app.set("trust proxy", true);
 
-const origensPermitidas = process.env.CORS_ORIGIN
-  ?.split(",")
+app.disable("x-powered-by");
+// Cabeçalhos de segurança (bloqueia o site dentro de iframes, força HTTPS etc.)
+app.use(helmet());
+
+// Só o site da loja pode chamar a API pelo navegador. Sem CORS_ORIGIN configurado,
+// vale o endereço oficial (e o localhost para desenvolvimento) — nunca "qualquer site".
+const origensPermitidas = (process.env.CORS_ORIGIN || "https://oliveiras-frontend.vercel.app,http://localhost:5173")
+  .split(",")
   .map((origem) => origem.trim())
   .filter(Boolean);
 
-app.use(cors({ origin: origensPermitidas?.length ? origensPermitidas : true }));
-app.use(express.json());
+app.use(cors({ origin: origensPermitidas }));
+app.use(express.json({ limit: "1mb" }));
 
 app.get("/", (_req, res) => {
   res.json({
     nome: "API Casa de Carnes Oliveiras",
     status: "ok",
     health: "/health",
-    frontend: "http://localhost:5173",
   });
 });
 
@@ -58,6 +65,7 @@ app.use("/motoboys", motoboysRouter);
 app.use("/caixa", caixaRouter);
 app.use("/fornecedores", fornecedoresRouter);
 app.use("/funcionarios", funcionariosRouter);
+app.use("/avisos", avisosRouter);
 
 // MVP completo (seção 21). Próximas melhorias possíveis: estoque, integração fiscal
 // (NF-e/NFC-e), integração com Pix, WhatsApp e outras automações.

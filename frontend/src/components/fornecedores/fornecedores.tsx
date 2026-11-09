@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { AvisoDuplicidade, useDuplicidade } from "../ui/Duplicidade";
 import { api, ErroApi } from "../../lib/api";
 import { Input } from "../ui/Input";
 import { Button } from "../ui/Button";
@@ -86,6 +87,7 @@ export function CampoFornecedor({
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const caixaRef = useRef<HTMLDivElement>(null);
+  const duplicidadeRapida = useDuplicidade("/fornecedores/duplicados", { nome: cadastroRapido?.nome, documento: cadastroRapido?.documento }, !!cadastroRapido);
   const idCampo = useId();
   const idLista = useId();
 
@@ -205,10 +207,12 @@ export function CampoFornecedor({
             <button type="button" onClick={() => setCadastroRapido(null)} aria-label="Fechar cadastro rápido" className="h-8 w-8 shrink-0 text-xl text-muted">×</button>
           </div>
           <CamposFornecedor dados={cadastroRapido} onMudar={setCadastroRapido} completo={false} />
+          <div className="mt-3"><AvisoDuplicidade resultado={duplicidadeRapida} tipo="este fornecedor" /></div>
+          {duplicidadeRapida.bloqueio.length > 0 && (() => { const existente = fornecedores.find((f) => f.id === duplicidadeRapida.bloqueio[0].id); return existente ? <Button type="button" variante="secundaria" className="mt-2" onClick={() => escolher(existente)}>Usar “{existente.nome}”</Button> : null; })()}
           {erro && <p role="alert" className="mt-3 text-sm text-danger">{erro}</p>}
           <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variante="secundaria" onClick={() => setCadastroRapido(null)}>Cancelar</Button>
-            <Button type="button" disabled={salvando} onClick={() => cadastrar()}>{salvando ? "Cadastrando..." : "Cadastrar e usar"}</Button>
+            <Button type="button" disabled={salvando || duplicidadeRapida.bloqueio.length > 0} onClick={() => cadastrar()}>{salvando ? "Cadastrando..." : "Cadastrar e usar"}</Button>
           </div>
         </div>
       )}

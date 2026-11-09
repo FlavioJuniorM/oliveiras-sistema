@@ -6,6 +6,7 @@ import { Card, CardTitulo } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { dataLocalISO, formatarDataCalendario, formatarQuantidadePedido } from "../../lib/formatadores";
+import { podeConfirmarDuplicado, useDuplicidade } from "../../components/ui/Duplicidade";
 
 function amanhaISO() {
   const amanha = new Date();
@@ -56,6 +57,10 @@ export function NovoPedido() {
   const [observacaoDigitada, setObservacaoDigitada] = useState("");
   const [buscaConcluida, setBuscaConcluida] = useState(false);
   const [novoCliente, setNovoCliente] = useState<{ nome: string; telefone: string; endereco: string; tipo: "PESSOA_FISICA" | "EMPRESA" } | null>(null);
+  const [confirmarClienteDuplicado, setConfirmarClienteDuplicado] = useState(false);
+  // Avisa se o cliente do cadastro rápido já existe (mesmo telefone ou nome)
+  const duplicidadeCliente = useDuplicidade("/clientes/duplicados", { nome: novoCliente?.nome, telefone: novoCliente?.telefone }, !!novoCliente);
+  const clientesParecidos = [...duplicidadeCliente.bloqueio, ...duplicidadeCliente.aviso];
   const [salvandoCliente, setSalvandoCliente] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
@@ -96,7 +101,20 @@ export function NovoPedido() {
     setErro("");
   }
 
-  async function salvarNovoCliente() {
+  async function usarClienteExistente(id: string) {
+    try {
+      const cliente = await api<Cliente>(`/clientes/${id}`);
+      setClienteSelecionado(cliente);
+      setNovoCliente(null);
+      setBuscaCliente("");
+      setClientesEncontrados([]);
+      setConfirmarClienteDuplicado(false);
+    } catch {
+      setErro("Não foi possível abrir esse cliente.");
+    }
+  }
+
+  async function salvarNovoCliente(ignorarAviso = false) {
     if (!novoCliente) return;
     if (novoCliente.nome.trim().length < 2) return setErro("Informe o nome do cliente.");
     setSalvandoCliente(true);
@@ -105,13 +123,14 @@ export function NovoPedido() {
       const telefone = novoCliente.telefone.trim() || undefined;
       const cliente = await api<Cliente>("/clientes", {
         method: "POST",
-        body: { tipo: novoCliente.tipo, nome: novoCliente.nome.trim(), telefone, whatsapp: telefone, endereco: novoCliente.endereco.trim() || undefined },
+        body: { tipo: novoCliente.tipo, nome: novoCliente.nome.trim(), telefone, whatsapp: telefone, endereco: novoCliente.endereco.trim() || undefined, ignorarAviso },
       });
       setClienteSelecionado(cliente);
       setNovoCliente(null);
       setBuscaCliente("");
       setClientesEncontrados([]);
     } catch (e) {
+      setConfirmarClienteDuplicado(podeConfirmarDuplicado(e));
       setErro(e instanceof ErroApi ? e.message : "Não foi possível cadastrar o cliente.");
     } finally {
       setSalvandoCliente(false);
@@ -205,7 +224,7 @@ export function NovoPedido() {
         <div className="flex flex-col gap-4 xl:col-span-2">
           <Card>
             <CardTitulo>1. Quem fez o pedido?</CardTitulo>
-            {clienteSelecionado ? <div className="mt-3 flex items-start justify-between gap-3 rounded-lg bg-background px-4 py-3"><div><p className="font-semibold text-ink">{clienteSelecionado.nomeFantasia || clienteSelecionado.razaoSocial || clienteSelecionado.nome}</p><p className="mt-1 text-xs text-muted">{clienteSelecionado.telefone || clienteSelecionado.whatsapp || "Sem telefone informado"}</p>{clienteSelecionado.endereco && <p className="mt-1 text-xs text-muted">Entrega: {clienteSelecionado.endereco}</p>}</div><Button variante="fantasma" onClick={() => setClienteSelecionado(null)}>Trocar</Button></div> : <div className="relative mt-3"><Input placeholder="Buscar cliente por nome, telefone ou documento..." value={buscaCliente} onChange={(e) => setBuscaCliente(e.target.value)} autoFocus />{clientesEncontrados.length > 0 && <div className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-border bg-white shadow-card">{clientesEncontrados.map((cliente) => <button key={cliente.id} type="button" onClick={() => { setClienteSelecionado(cliente); setClientesEncontrados([]); }} className="w-full px-4 py-3 text-left text-sm hover:bg-background"><p className="font-semibold text-ink">{cliente.nomeFantasia || cliente.razaoSocial || cliente.nome}</p><p className="mt-1 text-xs text-muted">{cliente.telefone || cliente.whatsapp || "Sem telefone"} · {cliente.endereco || "Sem endereço"}</p></button>)}</div>}{buscaConcluida && buscaCliente.trim() && clientesEncontrados.length === 0 && !novoCliente && <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-4 py-3"><p className="text-sm text-ink">Nenhum cliente encontrado para “{buscaCliente.trim()}”.</p><Button onClick={abrirCadastroCliente}>Cadastrar cliente</Button></div>}{!novoCliente && !(buscaConcluida && buscaCliente.trim() && clientesEncontrados.length === 0) && <button type="button" onClick={abrirCadastroCliente} className="mt-2 text-xs font-semibold text-primary">+ Cliente novo? Cadastrar agora</button>}{novoCliente && <div className="mt-3 rounded-lg border border-primary/30 bg-primary/5 p-4"><p className="text-sm font-semibold text-ink">Cadastro rápido de cliente</p><div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2"><Input label="Nome *" value={novoCliente.nome} onChange={(e) => setNovoCliente({ ...novoCliente, nome: e.target.value })} autoFocus /><Input label="Telefone / WhatsApp" inputMode="tel" value={novoCliente.telefone} onChange={(e) => setNovoCliente({ ...novoCliente, telefone: e.target.value })} /><div className="sm:col-span-2"><Input label="Endereço de entrega (opcional)" value={novoCliente.endereco} onChange={(e) => setNovoCliente({ ...novoCliente, endereco: e.target.value })} /></div><div className="flex gap-2 sm:col-span-2">{(["PESSOA_FISICA", "EMPRESA"] as const).map((tipo) => <button key={tipo} type="button" onClick={() => setNovoCliente({ ...novoCliente, tipo })} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${novoCliente.tipo === tipo ? "border-primary bg-white text-primary" : "border-border bg-surface text-muted"}`}>{tipo === "PESSOA_FISICA" ? "Pessoa física" : "Empresa / restaurante"}</button>)}</div></div><div className="mt-3 flex gap-2"><Button variante="secundaria" onClick={() => setNovoCliente(null)}>Cancelar</Button><Button disabled={salvandoCliente} onClick={salvarNovoCliente}>{salvandoCliente ? "Salvando..." : "Salvar e usar neste pedido"}</Button></div></div>}</div>}
+            {clienteSelecionado ? <div className="mt-3 flex items-start justify-between gap-3 rounded-lg bg-background px-4 py-3"><div><p className="font-semibold text-ink">{clienteSelecionado.nomeFantasia || clienteSelecionado.razaoSocial || clienteSelecionado.nome}</p><p className="mt-1 text-xs text-muted">{clienteSelecionado.telefone || clienteSelecionado.whatsapp || "Sem telefone informado"}</p>{clienteSelecionado.endereco && <p className="mt-1 text-xs text-muted">Entrega: {clienteSelecionado.endereco}</p>}</div><Button variante="fantasma" onClick={() => setClienteSelecionado(null)}>Trocar</Button></div> : <div className="relative mt-3"><Input placeholder="Buscar cliente por nome, telefone ou documento..." value={buscaCliente} onChange={(e) => setBuscaCliente(e.target.value)} autoFocus />{clientesEncontrados.length > 0 && <div className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-border bg-white shadow-card">{clientesEncontrados.map((cliente) => <button key={cliente.id} type="button" onClick={() => { setClienteSelecionado(cliente); setClientesEncontrados([]); }} className="w-full px-4 py-3 text-left text-sm hover:bg-background"><p className="font-semibold text-ink">{cliente.nomeFantasia || cliente.razaoSocial || cliente.nome}</p><p className="mt-1 text-xs text-muted">{cliente.telefone || cliente.whatsapp || "Sem telefone"} · {cliente.endereco || "Sem endereço"}</p></button>)}</div>}{buscaConcluida && buscaCliente.trim() && clientesEncontrados.length === 0 && !novoCliente && <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-4 py-3"><p className="text-sm text-ink">Nenhum cliente encontrado para “{buscaCliente.trim()}”.</p><Button onClick={abrirCadastroCliente}>Cadastrar cliente</Button></div>}{!novoCliente && !(buscaConcluida && buscaCliente.trim() && clientesEncontrados.length === 0) && <button type="button" onClick={abrirCadastroCliente} className="mt-2 text-xs font-semibold text-primary">+ Cliente novo? Cadastrar agora</button>}{novoCliente && <div className="mt-3 rounded-lg border border-primary/30 bg-primary/5 p-4"><p className="text-sm font-semibold text-ink">Cadastro rápido de cliente</p><div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2"><Input label="Nome *" value={novoCliente.nome} onChange={(e) => setNovoCliente({ ...novoCliente, nome: e.target.value })} autoFocus /><Input label="Telefone / WhatsApp" inputMode="tel" value={novoCliente.telefone} onChange={(e) => setNovoCliente({ ...novoCliente, telefone: e.target.value })} /><div className="sm:col-span-2"><Input label="Endereço de entrega (opcional)" value={novoCliente.endereco} onChange={(e) => setNovoCliente({ ...novoCliente, endereco: e.target.value })} /></div><div className="flex gap-2 sm:col-span-2">{(["PESSOA_FISICA", "EMPRESA"] as const).map((tipo) => <button key={tipo} type="button" onClick={() => setNovoCliente({ ...novoCliente, tipo })} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${novoCliente.tipo === tipo ? "border-primary bg-white text-primary" : "border-border bg-surface text-muted"}`}>{tipo === "PESSOA_FISICA" ? "Pessoa física" : "Empresa / restaurante"}</button>)}</div></div>{clientesParecidos.length > 0 && <div role="alert" className="mt-3 rounded-lg border border-gold/50 bg-gold/[0.12] p-3 text-sm"><p className="font-semibold text-gold-texto">⚠ Esse cliente parece já estar cadastrado:</p><ul className="mt-2 space-y-2">{clientesParecidos.slice(0, 3).map((d) => <li key={d.id} className="flex flex-wrap items-center justify-between gap-2"><span className="text-ink">{d.descricao} <span className="text-xs text-muted">({d.motivo})</span></span><Button variante="secundaria" className="h-9 px-3" onClick={() => usarClienteExistente(d.id)}>Usar este</Button></li>)}</ul></div>}<div className="mt-3 flex flex-wrap gap-2"><Button variante="secundaria" onClick={() => { setNovoCliente(null); setConfirmarClienteDuplicado(false); }}>Cancelar</Button><Button disabled={salvandoCliente} onClick={() => salvarNovoCliente(confirmarClienteDuplicado)}>{salvandoCliente ? "Salvando..." : confirmarClienteDuplicado ? "É outro cliente — salvar mesmo assim" : "Salvar e usar neste pedido"}</Button></div></div>}</div>}
           </Card>
           <Card>
             <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between"><div><CardTitulo>2. O que o cliente pediu?</CardTitulo><p className="mt-1 text-sm text-muted">Ex.: 10 kg de costela, 500 g de moída ou 15 unidades de bife de contra filé.</p></div><span className="text-sm font-semibold text-primary">{carrinho.length} {carrinho.length === 1 ? "item" : "itens"}</span></div>

@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useId, useMemo, useState } from "react";
+import { AvisoDuplicidade, useDuplicidade } from "../../components/ui/Duplicidade";
 import { api, ErroApi } from "../../lib/api";
 import { formatarMoeda } from "../../lib/formatadores";
 import { Produto } from "../../types";
@@ -53,8 +54,9 @@ function FormularioProduto({ produto, categorias, onCancelar, onSalvo }: { produ
   const [erro, setErro] = useState("");
   const [enviando, setEnviando] = useState(false);
 
+  const duplicidade = useDuplicidade("/produtos/duplicados", { nome, codigo, ignorarId: produto?.id });
   async function aoEnviar(evento: FormEvent) { evento.preventDefault(); setErro(""); setEnviando(true); try { const salvo = await api<Produto>(produto ? `/produtos/${produto.id}` : "/produtos", { method: produto ? "PUT" : "POST", body: produto ? { codigo, nome, tipoVenda, unidadeMedida, categoriaId: categoriaId || undefined } : { codigo, nome, preco: Number(preco.replace(",", ".")), tipoVenda, unidadeMedida, categoriaId: categoriaId || undefined } }); onSalvo(salvo); } catch (e) { setErro(e instanceof ErroApi ? e.message : "Erro ao salvar produto."); } finally { setEnviando(false); } }
-  return <Card><div className="flex items-center justify-between mb-4"><div><p className="font-display text-2xl uppercase text-ink">{produto ? "Editar corte" : "Novo corte"}</p><p className="text-sm text-muted">O preço tem edição separada para manter o histórico.</p></div><button type="button" onClick={onCancelar} className="text-2xl text-muted">×</button></div><form onSubmit={aoEnviar} className="grid grid-cols-1 gap-4 sm:grid-cols-2"><Input label="Código" value={codigo} onChange={(e) => setCodigo(e.target.value)} required /><Input label="Nome do corte" value={nome} onChange={(e) => setNome(e.target.value)} required /><SeletorCategoria categorias={categorias} valor={categoriaId} onMudar={setCategoriaId} /><div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-ink">Tipo de venda</label><select value={tipoVenda} onChange={(e) => setTipoVenda(e.target.value as Produto["tipoVenda"])} className="h-11 rounded-lg border border-border bg-white px-3.5 text-sm"><option value="PESO">Peso variável</option><option value="UNIDADE">Unidade</option><option value="PACOTE_FIXO">Pacote fixo</option></select></div><Input label="Unidade de medida" value={unidadeMedida} onChange={(e) => setUnidadeMedida(e.target.value)} />{!produto && <Input label="Preço inicial" type="number" step="0.01" value={preco} onChange={(e) => setPreco(e.target.value)} required />}{erro && <p className="text-sm text-danger sm:col-span-2">{erro}</p>}<div className="flex gap-2 sm:col-span-2"><Button type="button" variante="secundaria" onClick={onCancelar} className="flex-1">Cancelar</Button><Button type="submit" disabled={enviando} className="flex-1">{enviando ? "Salvando..." : "Salvar corte"}</Button></div></form></Card>;
+  return <Card><div className="flex items-center justify-between mb-4"><div><p className="font-display text-2xl uppercase text-ink">{produto ? "Editar corte" : "Novo corte"}</p><p className="text-sm text-muted">O preço tem edição separada para manter o histórico.</p></div><button type="button" onClick={onCancelar} className="text-2xl text-muted">×</button></div><form onSubmit={aoEnviar} className="grid grid-cols-1 gap-4 sm:grid-cols-2"><Input label="Código" value={codigo} onChange={(e) => setCodigo(e.target.value)} required /><Input label="Nome do corte" value={nome} onChange={(e) => setNome(e.target.value)} required /><SeletorCategoria categorias={categorias} valor={categoriaId} onMudar={setCategoriaId} /><div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-ink">Tipo de venda</label><select value={tipoVenda} onChange={(e) => setTipoVenda(e.target.value as Produto["tipoVenda"])} className="h-11 rounded-lg border border-border bg-white px-3.5 text-sm"><option value="PESO">Peso variável</option><option value="UNIDADE">Unidade</option><option value="PACOTE_FIXO">Pacote fixo</option></select></div><Input label="Unidade de medida" value={unidadeMedida} onChange={(e) => setUnidadeMedida(e.target.value)} />{!produto && <Input label="Preço inicial" type="number" step="0.01" value={preco} onChange={(e) => setPreco(e.target.value)} required />}<div className="sm:col-span-2"><AvisoDuplicidade resultado={duplicidade} tipo="este corte" /></div>{erro && <p className="text-sm text-danger sm:col-span-2">{erro}</p>}<div className="flex gap-2 sm:col-span-2"><Button type="button" variante="secundaria" onClick={onCancelar} className="flex-1">Cancelar</Button><Button type="submit" disabled={enviando || duplicidade.bloqueio.length > 0} className="flex-1">{enviando ? "Salvando..." : "Salvar corte"}</Button></div></form></Card>;
 }
 
 
@@ -93,6 +95,7 @@ function ModalAlterarProduto({ produto, categorias, onFechar, onSalvo }: { produ
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
   const unidade = produto.unidadeMedida || "kg";
+  const duplicidade = useDuplicidade("/produtos/duplicados", { nome, codigo, ignorarId: produto.id });
 
   async function salvar(evento: FormEvent) {
     evento.preventDefault();
@@ -126,8 +129,9 @@ function ModalAlterarProduto({ produto, categorias, onFechar, onSalvo }: { produ
         <Input label="Código" value={codigo} onChange={(e) => setCodigo(e.target.value)} required />
         <SeletorCategoria categorias={categorias} valor={categoriaId} onMudar={setCategoriaId} />
         <div className="sm:col-span-2"><Input label={`Preço atual (R$ por ${unidade})`} inputMode="decimal" value={preco} onChange={(e) => setPreco(e.target.value)} required /><p className="mt-1 text-xs text-muted">Mudança de preço vale para os próximos pedidos. Comandas já anotadas mantêm o preço da hora em que foram feitas.</p></div>
+        <div className="sm:col-span-2"><AvisoDuplicidade resultado={duplicidade} tipo="outro corte" /></div>
         {erro && <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger sm:col-span-2">{erro}</p>}
-        <div className="flex justify-end gap-2 sm:col-span-2"><Button type="button" variante="secundaria" onClick={onFechar}>Cancelar</Button><Button type="submit" disabled={salvando}>{salvando ? "Salvando..." : "Salvar alterações"}</Button></div>
+        <div className="flex justify-end gap-2 sm:col-span-2"><Button type="button" variante="secundaria" onClick={onFechar}>Cancelar</Button><Button type="submit" disabled={salvando || duplicidade.bloqueio.length > 0}>{salvando ? "Salvando..." : "Salvar alterações"}</Button></div>
       </form>
     </div>
   </div>;

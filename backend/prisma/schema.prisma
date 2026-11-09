@@ -26,6 +26,9 @@ model Usuario {
   nome         String
   login        String         @unique
   senhaHash    String         @map("senha_hash")
+  email       String?
+  // Recebe por e-mail, todo dia, o resumo das contas a pagar
+  avisosEmail Boolean @default(true) @map("avisos_email")
   papel        PapelUsuario   @default(FUNCIONARIO)
   status       StatusRegistro @default(ATIVO)
   criadoEm     DateTime       @default(now()) @map("criado_em")
@@ -291,6 +294,8 @@ model ContaPagar {
   formaPagamento String?     @map("forma_pagamento")
   status         StatusConta @default(PENDENTE)
   observacoes    String?
+  // Código de barras / linha digitável do boleto (só números) — evita lançar o mesmo boleto duas vezes
+  codigoBarras   String?      @unique @map("codigo_barras")
   // Salário de sábado gerado a partir do cadastro de funcionários
   funcionarioId  String?      @map("funcionario_id")
   funcionario    Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)

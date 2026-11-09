@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { AvisoDuplicidade, useDuplicidade } from "../../components/ui/Duplicidade";
 import { api, ErroApi } from "../../lib/api";
 import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
@@ -138,6 +139,7 @@ function ModalFornecedor({ fornecedor, onFechar, onSalvo }: { fornecedor?: Forne
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
   const renomeando = fornecedor && dados.nome.trim() !== fornecedor.nome;
+  const duplicidade = useDuplicidade("/fornecedores/duplicados", { nome: dados.nome, documento: dados.documento, ignorarId: fornecedor?.id });
 
   async function salvar(evento: FormEvent) {
     evento.preventDefault();
@@ -161,10 +163,11 @@ function ModalFornecedor({ fornecedor, onFechar, onSalvo }: { fornecedor?: Forne
         {renomeando && !!fornecedor.quantidadeContas && (
           <p className="rounded-lg bg-gold/15 px-3 py-2 text-sm text-ink">As {fornecedor.quantidadeContas} conta(s) lançada(s) como “{fornecedor.nome}” passam a aparecer com o nome novo.</p>
         )}
+        <AvisoDuplicidade resultado={duplicidade} tipo={fornecedor ? "outro fornecedor" : "este fornecedor"} />
         {erro && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variante="secundaria" onClick={onFechar}>Cancelar</Button>
-          <Button type="submit" tamanho="grande" disabled={salvando}>{salvando ? "Salvando..." : fornecedor ? "Salvar alterações" : "Cadastrar fornecedor"}</Button>
+          <Button type="submit" tamanho="grande" disabled={salvando || duplicidade.bloqueio.length > 0}>{salvando ? "Salvando..." : fornecedor ? "Salvar alterações" : "Cadastrar fornecedor"}</Button>
         </div>
       </form>
     </Modal>

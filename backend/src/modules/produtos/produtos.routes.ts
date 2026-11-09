@@ -1,3 +1,4 @@
+import { mensagemDuplicidade, produtosDuplicados, temDuplicidade } from "../../shared/duplicidade";
 import { Router } from "express";
 import { z } from "zod";
 import { autenticar } from "../../middlewares/autenticacao";
@@ -33,6 +34,12 @@ produtosRouter.get("/", async (req, res) => {
   return res.json(produtos);
 });
 
+// Verificação de duplicados enquanto digita (mesmo nome ou código)
+produtosRouter.get("/duplicados", async (req, res) => {
+  const q = req.query as Record<string, string | undefined>;
+  return res.json(await produtosDuplicados({ nome: q.nome, codigo: q.codigo, ignorarId: q.ignorarId }));
+});
+
 produtosRouter.get("/:id", async (req, res) => {
   const produto = await obterProduto(req.params.id);
   if (!produto) {
@@ -46,6 +53,10 @@ produtosRouter.post("/", somentePapel("ADMINISTRATIVO"), async (req, res) => {
   const validacao = produtoSchema.safeParse(req.body);
   if (!validacao.success) {
     return res.status(400).json({ erro: validacao.error.issues[0].message });
+  }
+  const duplicados = await produtosDuplicados({ nome: validacao.data.nome, codigo: validacao.data.codigo ?? undefined });
+  if (temDuplicidade(duplicados)) {
+    return res.status(409).json({ erro: mensagemDuplicidade("um corte", duplicados), duplicados, podeContinuar: false });
   }
 
   try {
@@ -71,6 +82,10 @@ produtosRouter.put("/:id", somentePapel("ADMINISTRATIVO"), async (req, res) => {
   const validacao = dadosProdutoSchema.safeParse(req.body);
   if (!validacao.success) {
     return res.status(400).json({ erro: validacao.error.issues[0].message });
+  }
+  const duplicados = await produtosDuplicados({ nome: validacao.data.nome, codigo: validacao.data.codigo ?? undefined, ignorarId: req.params.id });
+  if (temDuplicidade(duplicados)) {
+    return res.status(409).json({ erro: mensagemDuplicidade("outro corte", duplicados), duplicados, podeContinuar: false });
   }
 
   try {
