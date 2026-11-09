@@ -1,3 +1,4 @@
+import { gerarSalariosDeSabado } from "../funcionarios/funcionarios.service";
 import { formatarDataCalendario, hojeCalendario } from "../../shared/datas";
 import { prisma } from "../../config/database";
 import { registrarLog } from "../../shared/registrarLog";
@@ -21,10 +22,13 @@ interface FiltrosContaPagar {
 }
 
 export async function listarContasPagar(filtros: FiltrosContaPagar) {
+  // Salários de sábado dos funcionários entram sozinhos
+  await gerarSalariosDeSabado();
   const statusDoBanco = filtros.status && filtros.status !== "VENCIDO" ? filtros.status : undefined;
   const contas = await prisma.contaPagar.findMany({
     where: { status: statusDoBanco, categoria: filtros.categoria },
     orderBy: { vencimento: "asc" },
+    include: { funcionario: { select: { id: true, nome: true, chavePix: true, registrado: true } } },
   });
 
   // Marca como vencida (na leitura) qualquer conta pendente/parcial cujo vencimento já passou

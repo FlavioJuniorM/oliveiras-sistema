@@ -82,3 +82,6 @@ export const IconeSetaDir = (p: PropsIcone) => (
 export const IconeCaminhao = (p: PropsIcone) => (
   <Base {...p}><path d="M3 6h11v10H3zM14 9h4l3 3.5V16h-7" /><circle cx="7" cy="17.5" r="1.8" /><circle cx="17.5" cy="17.5" r="1.8" /></Base>
 );
+export const IconeCracha = (p: PropsIcone) => (
+  <Base {...p}><rect x="3" y="5" width="18" height="15" rx="2" /><path d="M9 5V3h6v2" /><circle cx="9" cy="11.5" r="2" /><path d="M5.5 17a3.5 3.5 0 0 1 7 0M15 10h3M15 13.5h3" /></Base>
+);

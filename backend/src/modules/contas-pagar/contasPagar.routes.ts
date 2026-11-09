@@ -127,6 +127,9 @@ contasPagarRouter.put("/:id", async (req, res) => {
     return res.json(conta);
   } catch (erro) {
     if (erro instanceof ErroContaPagar) return res.status(400).json({ erro: erro.message });
+    if ((erro as { code?: string })?.code === "P2002") {
+      return res.status(409).json({ erro: "Este funcionário já tem um salário lançado nessa data." });
+    }
     console.error(erro);
     return res.status(500).json({ erro: "Erro interno ao alterar a conta." });
   }

@@ -17,6 +17,7 @@ const MAIS_ADMIN = [
   { rotulo: "Contas a Receber", para: "/financeiro/contas-a-receber" },
   { rotulo: "Contas a Pagar", para: "/financeiro/contas-a-pagar" },
   { rotulo: "Fornecedores", para: "/financeiro/fornecedores" },
+  { rotulo: "Funcionários", para: "/financeiro/funcionarios" },
   { rotulo: "Relatórios", para: "/relatorios" },
   { rotulo: "Usuários", para: "/usuarios" },
   { rotulo: "Configurações", para: "/configuracoes" },

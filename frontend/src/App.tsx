@@ -17,6 +17,7 @@ import { Configuracoes } from "./pages/configuracoes/Configuracoes";
 import { MinhaSenha } from "./pages/MinhaSenha";
 import { FechamentoCaixa } from "./pages/financeiro/FechamentoCaixa";
 import { Fornecedores } from "./pages/financeiro/Fornecedores";
+import { Funcionarios } from "./pages/financeiro/Funcionarios";
 
 export default function App() {
   return (
@@ -68,6 +69,14 @@ export default function App() {
             element={
               <RotaProtegida somenteAdmin>
                 <ContasPagar />
+              </RotaProtegida>
+            }
+          />
+          <Route
+            path="/financeiro/funcionarios"
+            element={
+              <RotaProtegida somenteAdmin>
+                <Funcionarios />
               </RotaProtegida>
             }
           />

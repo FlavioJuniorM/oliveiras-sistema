@@ -13,6 +13,7 @@ const TITULOS: Record<string, string> = {
   "/financeiro/contas-a-receber": "Contas a Receber",
   "/financeiro/contas-a-pagar": "Contas a Pagar",
   "/financeiro/fornecedores": "Fornecedores",
+  "/financeiro/funcionarios": "Funcionários",
   "/relatorios": "Relatórios",
   "/usuarios": "Usuários",
   "/configuracoes": "Configurações",
