@@ -85,3 +85,9 @@ export const IconeCaminhao = (p: PropsIcone) => (
 export const IconeCracha = (p: PropsIcone) => (
   <Base {...p}><rect x="3" y="5" width="18" height="15" rx="2" /><path d="M9 5V3h6v2" /><circle cx="9" cy="11.5" r="2" /><path d="M5.5 17a3.5 3.5 0 0 1 7 0M15 10h3M15 13.5h3" /></Base>
 );
+export const IconeDownload = (p: PropsIcone) => (
+  <Base {...p}><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></Base>
+);
+export const IconeAtualizar = (p: PropsIcone) => (
+  <Base {...p}><path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" /></Base>
+);

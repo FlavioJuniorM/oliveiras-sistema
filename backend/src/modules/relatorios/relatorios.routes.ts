@@ -10,6 +10,7 @@ import {
   relatorioVendasPorPeriodo,
   fechamentoDeCaixa,
 } from "./relatorios.service";
+import { relatorioCompleto } from "./relatorioCompleto.service";
 
 export const relatoriosRouter = Router();
 
@@ -36,6 +37,20 @@ function validarPeriodo(req: any, res: any): { inicio: Date; fim: Date } | null 
   // Dias completos no horário de Brasília: "até 03/11" inclui o dia 03/11 inteiro
   return periodoNaLoja(validacao.data.inicio, validacao.data.fim);
 }
+
+// GET /relatorios/completo?inicio=2026-11-01&fim=2026-11-30 — painel gerencial completo (KPIs + gráficos + PDF)
+relatoriosRouter.get("/completo", async (req, res) => {
+  const validacao = periodoSchema.safeParse({ inicio: req.query.inicio, fim: req.query.fim });
+  if (!validacao.success) return res.status(400).json({ erro: "Informe as datas de início e fim." });
+  const { inicio, fim } = validacao.data;
+  if (Number.isNaN(Date.parse(`${inicio}T00:00:00Z`)) || Number.isNaN(Date.parse(`${fim}T00:00:00Z`))) {
+    return res.status(400).json({ erro: "Data inválida." });
+  }
+  if (inicio > fim) return res.status(400).json({ erro: "A data de início precisa ser antes da data de fim." });
+  const dias = (Date.parse(`${fim}T00:00:00Z`) - Date.parse(`${inicio}T00:00:00Z`)) / 86_400_000 + 1;
+  if (dias > 366) return res.status(400).json({ erro: "Escolha um período de até 1 ano." });
+  return res.json(await relatorioCompleto(inicio, fim));
+});
 
 // GET /relatorios/vendas?inicio=2026-08-01&fim=2026-08-31
 relatoriosRouter.get("/vendas", async (req, res) => {
