@@ -427,7 +427,7 @@ export async function atualizarPreparoItem(
       data: {
         subtotal: totalPedido,
         desconto: 0,
-        total: totalPedido,
+        total: Number((totalPedido + Number(item.pedido.taxaEntrega ?? 0)).toFixed(2)),
         statusOperacao: novoStatusOperacao,
       },
     });
@@ -464,7 +464,7 @@ export async function atualizarStatusOperacaoPedido(
   pedidoId: string,
   statusOperacao: StatusOperacaoPedido,
   usuarioId: string,
-  opcoes: { enderecoEntrega?: string; formaRecebida?: FormaRecebimento } = {}
+  opcoes: { enderecoEntrega?: string; formaRecebida?: FormaRecebimento; taxaEntrega?: number } = {}
 ) {
   const pedido = await prisma.pedido.findUnique({
     where: { id: pedidoId },
@@ -493,12 +493,42 @@ export async function atualizarStatusOperacaoPedido(
     throw new ErroPedido("Movimentação não permitida para esta comanda.");
   }
 
-  const total = Number(pedido.total);
   const totalPago = pedido.pagamentos.reduce((soma, pagamento) => soma + Number(pagamento.valor), 0);
+  const dados: Prisma.PedidoUpdateInput = { statusOperacao };
+
+  // ---- Taxa de entrega: informada ao mandar para a rota; some quando vira retirada
+  let total = Number(pedido.total);
+  let novoValorConta: number | null = null;
+  const taxaAtual = Number(pedido.taxaEntrega);
+  let taxaNova = taxaAtual;
+  if (statusOperacao === "EM_ENTREGA" && opcoes.taxaEntrega !== undefined) taxaNova = Number(Math.max(opcoes.taxaEntrega, 0).toFixed(2));
+  if (statusOperacao === "AGUARDANDO_RETIRADA" && taxaAtual > 0) taxaNova = 0;
+  if (Math.abs(taxaNova - taxaAtual) > 0.004) {
+    const novoTotal = Number((Number(pedido.subtotal) - Number(pedido.desconto) + taxaNova).toFixed(2));
+    const conta = pedido.contaReceber;
+    const contaJaRecebeu = conta && Number(conta.saldo) < Number(conta.valorOriginal) - TOLERANCIA_CENTAVOS;
+    const pagoDemais = totalPago > novoTotal + TOLERANCIA_CENTAVOS;
+    if (statusOperacao === "EM_ENTREGA" && (contaJaRecebeu || pagoDemais)) {
+      throw new ErroPedido(
+        contaJaRecebeu
+          ? "Esta venda a prazo já recebeu pagamento. Ajuste a taxa em Contas a Receber."
+          : "Já foi pago mais do que o novo total. Use “Alterar” na comanda para refazer o pagamento."
+      );
+    }
+    if (!contaJaRecebeu && !pagoDemais) {
+      total = novoTotal;
+      dados.taxaEntrega = taxaNova;
+      dados.total = novoTotal;
+      if (conta) novoValorConta = novoTotal;
+      // Já estava pago e a taxa aumentou: a diferença fica para receber na entrega
+      if (!conta && totalPago > TOLERANCIA_CENTAVOS) {
+        dados.statusPagamento = novoTotal - totalPago > TOLERANCIA_CENTAVOS ? "PARCIALMENTE_PAGO" : "PAGO";
+      }
+    }
+  }
+
   const saldo = Number(Math.max(total - totalPago, 0).toFixed(2));
   const cobrarNoRecebimento = saldo > TOLERANCIA_CENTAVOS && !pedido.contaReceber;
-
-  const dados: Prisma.PedidoUpdateInput = { statusOperacao };
 
   if (statusOperacao === "AGUARDANDO_RETIRADA") {
     dados.tipoEntrega = "RETIRADA";
@@ -523,6 +553,9 @@ export async function atualizarStatusOperacaoPedido(
   }
 
   await prisma.$transaction(async (tx) => {
+    if (novoValorConta !== null) {
+      await tx.contaReceber.update({ where: { pedidoId }, data: { valorOriginal: novoValorConta, saldo: novoValorConta } });
+    }
     if (statusOperacao === "ENTREGUE" && cobrarNoRecebimento) {
       await tx.pagamento.create({
         data: { pedidoId, forma: opcoes.formaRecebida!, valor: saldo, usuarioId },
@@ -637,9 +670,22 @@ export async function finalizarConferenciaPedido(
     formaPagamento: FormaPagamentoFinal;
     vencimento?: Date;
     divisao?: { forma: "DINHEIRO" | "PIX" | "CARTAO_DEBITO" | "CARTAO_CREDITO" | "TRANSFERENCIA"; valor: number }[];
+    /** Taxa de entrega cobrada do cliente (só delivery). Vai separada na nota. */
+    taxaEntrega?: number;
   },
   usuarioId: string
 ) {
+  const pedidoAntes = await prisma.pedido.findUnique({ where: { id: pedidoId }, select: { tipoEntrega: true, taxaEntrega: true, subtotal: true, desconto: true } });
+  if (pedidoAntes && input.taxaEntrega !== undefined) {
+    const taxa = pedidoAntes.tipoEntrega === "DELIVERY" ? Number(Math.max(input.taxaEntrega, 0).toFixed(2)) : 0;
+    if (Math.abs(taxa - Number(pedidoAntes.taxaEntrega)) > 0.004) {
+      await prisma.$transaction(async (tx) => {
+        await tx.pedido.update({ where: { id: pedidoId }, data: { taxaEntrega: taxa } });
+        await recalcularTotalComanda(tx, pedidoId);
+      });
+    }
+  }
+
   const pedido = await prisma.pedido.findUnique({
     where: { id: pedidoId },
     include: { cliente: true, itens: true, pagamentos: true, contaReceber: true },
@@ -916,13 +962,15 @@ async function carregarComandaEditavel(pedidoId: string) {
   return pedido;
 }
 
-/** Total da comanda = soma dos itens já pesados. */
+/** Total da comanda = soma dos itens já pesados + taxa de entrega. */
 async function recalcularTotalComanda(tx: Prisma.TransactionClient, pedidoId: string) {
   const itens = await tx.pedidoItem.findMany({ where: { pedidoId } });
-  const total = Number(
+  const pedido = await tx.pedido.findUnique({ where: { id: pedidoId }, select: { taxaEntrega: true } });
+  const subtotal = Number(
     itens.reduce((soma, item) => soma + (item.statusPreparo === "CORTADO" ? Number(item.subtotal) : 0), 0).toFixed(2)
   );
-  await tx.pedido.update({ where: { id: pedidoId }, data: { subtotal: total, desconto: 0, total } });
+  const total = Number((subtotal + Number(pedido?.taxaEntrega ?? 0)).toFixed(2));
+  await tx.pedido.update({ where: { id: pedidoId }, data: { subtotal, desconto: 0, total } });
 }
 
 export async function adicionarItemPedido(pedidoId: string, input: ItemPedidoInput, usuarioId: string) {
@@ -1089,6 +1137,7 @@ export async function alterarPagamentoEEntrega(
     tipoEntrega?: "RETIRADA" | "DELIVERY";
     enderecoEntrega?: string;
     clienteId?: string;
+    taxaEntrega?: number;
   },
   usuarioId: string
 ) {
@@ -1104,10 +1153,25 @@ export async function alterarPagamentoEEntrega(
     throw new ErroPedido("A comanda ainda está aberta. Feche a comanda primeiro (o pagamento é definido no fechamento).");
   }
 
-  const total = Number(pedido.total);
   const dados: Prisma.PedidoUpdateInput = {};
   const mudancas: string[] = [];
   let novoStatusOperacao: StatusOperacaoPedido | null = null;
+
+  // ---- Taxa de entrega (só existe no delivery; na retirada fica zero) e novo total
+  const tipoFinal = input.tipoEntrega ?? pedido.tipoEntrega;
+  const taxaAtual = Number(pedido.taxaEntrega);
+  const taxaNova = tipoFinal === "DELIVERY" ? Number(Math.max(input.taxaEntrega ?? taxaAtual, 0).toFixed(2)) : 0;
+  const total = Number((Number(pedido.subtotal) - Number(pedido.desconto) + taxaNova).toFixed(2));
+  const totalMudou = Math.abs(total - Number(pedido.total)) > TOLERANCIA_CENTAVOS;
+  if (Math.abs(taxaNova - taxaAtual) > 0.004) {
+    dados.taxaEntrega = taxaNova;
+    dados.total = total;
+    mudancas.push(`taxa de entrega: R$ ${taxaAtual.toFixed(2)} → R$ ${taxaNova.toFixed(2)}`);
+  }
+  const jaTemFinanceiro = pedido.pagamentos.length > 0 || !!pedido.contaReceber;
+  if (totalMudou && jaTemFinanceiro && !input.pagamento) {
+    throw new ErroPedido("O total mudou por causa da taxa de entrega. Escolha também como foi (ou será) o pagamento.");
+  }
 
   // ---- Cliente
   let clienteId = pedido.clienteId;

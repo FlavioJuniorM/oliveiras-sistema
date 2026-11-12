@@ -125,6 +125,7 @@ const statusOperacaoSchema = z.enum([
 const saidaPedidoSchema = z.object({
   enderecoEntrega: z.string().max(300).optional(),
   formaRecebida: z.enum(["DINHEIRO", "PIX", "CARTAO_DEBITO", "CARTAO_CREDITO"]).optional(),
+  taxaEntrega: z.number().min(0, "A taxa de entrega não pode ser negativa.").max(1000, "Taxa de entrega muito alta.").optional(),
 });
 
 const preparoItemSchema = z.object({
@@ -146,6 +147,8 @@ const finalizacaoConferenciaSchema = z.object({
     "DIVIDIDO",
   ]),
   vencimento: z.coerce.date().optional(),
+  // Taxa de entrega cobrada do cliente (delivery), sai separada na nota
+  taxaEntrega: z.number().min(0, "A taxa de entrega não pode ser negativa.").max(1000, "Taxa de entrega muito alta.").optional(),
   // Pagamento dividido em duas formas (ex.: parte no cartão, parte em dinheiro)
   divisao: z
     .array(z.object({ forma: z.enum(["DINHEIRO", "PIX", "CARTAO_DEBITO", "CARTAO_CREDITO", "TRANSFERENCIA"]), valor: z.number().positive("Cada parte precisa ter valor.") }))
@@ -192,6 +195,7 @@ const alterarComandaSchema = z.object({
     ])
     .optional(),
   tipoEntrega: z.enum(["RETIRADA", "DELIVERY"]).optional(),
+  taxaEntrega: z.number().min(0, "A taxa de entrega não pode ser negativa.").max(1000, "Taxa de entrega muito alta.").optional(),
   enderecoEntrega: z.string().max(300).optional(),
   clienteId: z.string().uuid().optional(),
 });

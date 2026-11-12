@@ -57,6 +57,12 @@ async function montarDadosComanda(pedidoId: string) {
       ? [`A Prazo: ${formatarMoeda(Number(pedido.contaReceber.valorOriginal))}`]
       : []),
   ];
+  // Pago só em parte (ex.: a taxa de entrega entrou depois): mostra o que falta cobrar
+  const pagoAgora = pedido.pagamentos.reduce((soma, p) => soma + Number(p.valor), 0);
+  const faltaCobrar = Number((Number(pedido.total) - pagoAgora).toFixed(2));
+  if (!pedido.contaReceber && pagoAgora > 0 && faltaCobrar > 0.01) {
+    formasResumo.push(`Falta cobrar ${pedido.tipoEntrega === "DELIVERY" ? "na entrega" : "na retirada"}: ${formatarMoeda(faltaCobrar)}`);
+  }
 
   return { pedido, formasResumo };
 }
@@ -108,9 +114,12 @@ export async function gerarComandaTermica(pedidoId: string, largura: 32 | 42 = 3
   }
 
   linhas.push(linha);
-  linhas.push(`Subtotal: ${formatarMoeda(Number(pedido.subtotal))}`);
+  linhas.push(`Valor dos produtos: ${formatarMoeda(Number(pedido.subtotal))}`);
   if (Number(pedido.desconto) > 0) {
     linhas.push(`Desconto: -${formatarMoeda(Number(pedido.desconto))}`);
+  }
+  if (Number(pedido.taxaEntrega) > 0) {
+    linhas.push(`Taxa de entrega: ${formatarMoeda(Number(pedido.taxaEntrega))}`);
   }
   linhas.push(`TOTAL: ${formatarMoeda(Number(pedido.total))}`);
   linhas.push(linha);
@@ -282,6 +291,8 @@ export async function gerarComandaTermicaHtml(pedidoId: string, tipo: TipoImpres
     ${itens}
     <div class="separador"></div>
     ${pesoTotal > 0 ? `<div class="linha"><span>Peso total</span><span>${pesoTotal.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} kg</span></div>` : ""}
+    ${Number(pedido.taxaEntrega) > 0 || Number(pedido.desconto) > 0 ? `<div class="linha"><span>Valor dos produtos</span><span>${formatarMoeda(Number(pedido.subtotal))}</span></div>` : ""}
+    ${Number(pedido.desconto) > 0 ? `<div class="linha"><span>Desconto</span><span>-${formatarMoeda(Number(pedido.desconto))}</span></div>` : ""}
     ${Number(pedido.taxaEntrega) > 0 ? `<div class="linha"><span>Taxa de entrega</span><span>${formatarMoeda(Number(pedido.taxaEntrega))}</span></div>` : ""}
     <div class="linha total"><span>TOTAL</span><span>${formatarMoeda(Number(pedido.total))}</span></div>
     <div class="separador"></div>
@@ -351,8 +362,9 @@ export async function gerarComandaA4Html(pedidoId: string) {
   </table>
 
   <div class="totais">
-    <p>Subtotal: ${formatarMoeda(Number(pedido.subtotal))}</p>
+    <p>Valor dos produtos: ${formatarMoeda(Number(pedido.subtotal))}</p>
     ${Number(pedido.desconto) > 0 ? `<p>Desconto: -${formatarMoeda(Number(pedido.desconto))}</p>` : ""}
+    ${Number(pedido.taxaEntrega) > 0 ? `<p>Taxa de entrega: ${formatarMoeda(Number(pedido.taxaEntrega))}</p>` : ""}
     <p><strong>Total: ${formatarMoeda(Number(pedido.total))}</strong></p>
   </div>
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { CampoTaxaEntrega, ResumoComTaxa, lerTaxa, taxaInicial, valorProdutos } from "./TaxaEntrega";
 import { api, ErroApi } from "../../lib/api";
 import { dataLocalISO, formatarDataCalendario, formatarMoeda } from "../../lib/formatadores";
 import { Cliente, Pedido } from "../../types";
@@ -94,7 +95,13 @@ export function ModalAlterarComanda({
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   // Duas formas: digita a 1ª parte, a 2ª é o restante
-  const total = Number(pedido.total);
+  // Taxa de entrega (só no delivery). Mudar a taxa muda o total da comanda.
+  const [taxaTexto, setTaxaTexto] = useState(taxaInicial(pedido));
+  const taxaLida = lerTaxa(taxaTexto);
+  const taxaAtual = Number(pedido.taxaEntrega ?? 0);
+  const total = tipoEntrega === "DELIVERY"
+    ? Number((valorProdutos(pedido) + (taxaLida !== null && !Number.isNaN(taxaLida) ? taxaLida : 0)).toFixed(2))
+    : valorProdutos(pedido);
   const [forma1, setForma1] = useState("CARTAO_DEBITO");
   const [valor1, setValor1] = useState((total / 2).toFixed(2));
   const [forma2, setForma2] = useState("DINHEIRO");
@@ -116,11 +123,15 @@ export function ModalAlterarComanda({
   const mudouEntrega = tipoEntrega !== (pedido.tipoEntrega === "DELIVERY" ? "DELIVERY" : "RETIRADA")
     || (tipoEntrega === "DELIVERY" && endereco.trim() !== (pedido.enderecoEntrega || ""));
   const mudouCliente = !!cliente && cliente.id !== pedido.cliente?.id;
-  const temMudanca = mudouEntrega || mudouCliente || pagamento !== null;
+  const taxaParaSalvar = tipoEntrega === "DELIVERY" ? (taxaLida !== null && !Number.isNaN(taxaLida) ? taxaLida : 0) : 0;
+  const mudouTaxa = Math.abs(taxaParaSalvar - taxaAtual) > 0.004;
+  const temMudanca = mudouEntrega || mudouCliente || mudouTaxa || pagamento !== null;
 
   async function salvar() {
     setErro("");
     if (tipoEntrega === "DELIVERY" && !endereco.trim()) return setErro("Informe o endereço de entrega.");
+    if (tipoEntrega === "DELIVERY" && Number.isNaN(taxaLida)) return setErro("A taxa de entrega está inválida.");
+    if (mudouTaxa && !pagamento && (pedido.pagamentos?.length || pedido.contaReceber)) return setErro("O total mudou por causa da taxa de entrega. Escolha também a forma de pagamento.");
     if (pagamento === "A_PRAZO" && !cliente) return setErro("Escolha o cliente que vai pagar depois.");
     if (pagamento === "A_PRAZO" && !vencimento) return setErro("Escolha a data em que o cliente vai pagar.");
     if (pagamento === "DIVIDIDO") {
@@ -134,6 +145,7 @@ export function ModalAlterarComanda({
       if (tipoEntrega === "DELIVERY") corpo.enderecoEntrega = endereco.trim();
     }
     if (mudouCliente) corpo.clienteId = cliente!.id;
+    if (mudouTaxa) corpo.taxaEntrega = taxaParaSalvar;
     if (pagamento === "A_PRAZO") corpo.pagamento = { modo: "A_PRAZO", vencimento };
     else if (pagamento === "NO_RECEBIMENTO") corpo.pagamento = { modo: "NO_RECEBIMENTO" };
     else if (pagamento === "DIVIDIDO") corpo.pagamento = { modo: "DIVIDIDO", partes: [{ forma: forma1, valor: Number(parte1.toFixed(2)) }, { forma: forma2, valor: parte2 }] };
@@ -229,7 +241,7 @@ export function ModalAlterarComanda({
               <button type="button" aria-pressed={tipoEntrega === "RETIRADA"} onClick={() => setTipoEntrega("RETIRADA")} className={botao(tipoEntrega === "RETIRADA")}>🏪 Retirada na loja</button>
               <button type="button" aria-pressed={tipoEntrega === "DELIVERY"} onClick={() => setTipoEntrega("DELIVERY")} className={botao(tipoEntrega === "DELIVERY")}>🛵 Entrega</button>
             </div>
-            {tipoEntrega === "DELIVERY" && <div className="mt-3"><Input label="Endereço de entrega" value={endereco} onChange={(e) => setEndereco(e.target.value)} placeholder="Rua, número, bairro, complemento" /></div>}
+            {tipoEntrega === "DELIVERY" && <div className="mt-3 flex flex-col gap-3"><Input label="Endereço de entrega" value={endereco} onChange={(e) => setEndereco(e.target.value)} placeholder="Rua, número, bairro, complemento" /><CampoTaxaEntrega valor={taxaTexto} onChange={setTaxaTexto} id={`taxa-alterar-${pedido.id}`} /><ResumoComTaxa produtos={valorProdutos(pedido)} taxa={taxaParaSalvar} /></div>}
             {!entregue && mudouEntrega && (status === "AGUARDANDO_RETIRADA" || status === "EM_ENTREGA") && (
               <p className="mt-2 text-xs text-muted">A comanda passa para {tipoEntrega === "DELIVERY" ? "“Em rota”" : "“Retiradas”"}.</p>
             )}
