@@ -149,7 +149,10 @@ export function LancamentosCaixa() {
           <h2 id="titulo-lancamentos-caixa" className="font-display text-2xl uppercase text-ink sm:text-3xl">Lançamentos do caixa da loja</h2>
           <p className="mt-1 text-sm text-muted">Dinheiro, Pix, cartões e CEASA (lançados à mão) + pedidos delivery entregues no sistema (somados sozinhos), menos os gastos/sangrias do dia. Escolha o dia no calendário.</p>
         </div>
-        <Button tamanho="grande" className="shrink-0 whitespace-nowrap" onClick={() => setFormulario({ data: diaFuturo || porDia.has(diaSelecionado) ? hoje : diaSelecionado })}>
+        <Button tamanho="grande" className="shrink-0 whitespace-nowrap" onClick={() => {
+            const dia = diaFuturo ? hoje : diaSelecionado;
+            setFormulario({ lancamento: porDia.get(dia), data: dia });
+          }}>
           <IconeMais tamanho={20} />
           Inserir dados
         </Button>
@@ -358,27 +361,72 @@ function ModalLancamento({
   onFechar: () => void;
   onSalvo: (salvo: LancamentoCaixa, idAnterior?: string) => void;
 }) {
-  const editando = inicial.lancamento;
   const textoInicial = (valor?: number) => (valor ? String(valor) : "");
+  // Lançamento que está sendo alterado. Se escolher um dia que já tem lançamento,
+  // o formulário passa a alterar aquele dia (em vez de bloquear).
+  const [editando, setEditando] = useState<LancamentoCaixa | undefined>(inicial.lancamento);
+  const [carregadoDoDia, setCarregadoDoDia] = useState(false);
   const [data, setData] = useState(inicial.data);
   const [valores, setValores] = useState({
-    dinheiro: textoInicial(editando?.dinheiro),
-    pix: textoInicial(editando?.pix),
-    cartoes: textoInicial(editando?.cartoes),
-    ceasa: textoInicial(editando?.ceasa),
+    dinheiro: textoInicial(inicial.lancamento?.dinheiro),
+    pix: textoInicial(inicial.lancamento?.pix),
+    cartoes: textoInicial(inicial.lancamento?.cartoes),
+    ceasa: textoInicial(inicial.lancamento?.ceasa),
   });
-  const [gastos, setGastos] = useState(textoInicial(editando?.gastos));
-  const [gastosDescricao, setGastosDescricao] = useState(editando?.gastosDescricao ?? "");
-  const [observacoes, setObservacoes] = useState(editando?.observacoes ?? "");
+  const [gastos, setGastos] = useState(textoInicial(inicial.lancamento?.gastos));
+  const [gastosDescricao, setGastosDescricao] = useState(inicial.lancamento?.gastosDescricao ?? "");
+  const [observacoes, setObservacoes] = useState(inicial.lancamento?.observacoes ?? "");
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const [procurandoDia, setProcurandoDia] = useState(false);
+  // Pedidos entregues de dias fora do mês aberto no calendário
+  const [pedidosOutroMes, setPedidosOutroMes] = useState<Map<string, PedidosDoDiaCaixa>>(new Map());
+
+  function preencher(l?: LancamentoCaixa) {
+    setValores({ dinheiro: textoInicial(l?.dinheiro), pix: textoInicial(l?.pix), cartoes: textoInicial(l?.cartoes), ceasa: textoInicial(l?.ceasa) });
+    setGastos(textoInicial(l?.gastos));
+    setGastosDescricao(l?.gastosDescricao ?? "");
+    setObservacoes(l?.observacoes ?? "");
+  }
+
+  async function trocarDia(novaData: string) {
+    setData(novaData);
+    setErro("");
+    // Procura se o dia já tem lançamento (no mês carregado ou buscando o mês do dia)
+    let doDia = diasLancados.get(novaData);
+    if (!doDia) {
+      setProcurandoDia(true);
+      try {
+        const [doMes, entreguesDoMes] = await Promise.all([
+          api<LancamentoCaixa[]>(`/caixa/lancamentos?mes=${novaData.slice(0, 7)}`),
+          pedidosPorDia.has(novaData) ? Promise.resolve(null) : api<PedidosDoDiaCaixa[]>(`/caixa/pedidos-entregues?mes=${novaData.slice(0, 7)}`),
+        ]);
+        doDia = doMes.find((l) => l.data === novaData);
+        if (entreguesDoMes) setPedidosOutroMes(new Map(entreguesDoMes.map((d) => [d.data, d])));
+      } catch {
+        // sem conexão: segue como dia novo; o servidor avisa se já existir
+      } finally {
+        setProcurandoDia(false);
+      }
+    }
+    if (doDia && doDia.id !== editando?.id) {
+      setEditando(doDia);
+      setCarregadoDoDia(true);
+      preencher(doDia);
+    } else if (!doDia && carregadoDoDia) {
+      // saiu de um dia já lançado para um dia livre: volta a ser um lançamento novo
+      setEditando(undefined);
+      setCarregadoDoDia(false);
+      preencher(undefined);
+    }
+  }
 
   const numero = (texto: string) => Number(texto.replace(",", ".")) || 0;
   const total = numero(valores.dinheiro) + numero(valores.pix) + numero(valores.cartoes) + numero(valores.ceasa);
   const totalGastos = numero(gastos);
-  const pedidosDia = pedidosPorDia.get(data)?.total ?? 0;
-  const outroNoMesmoDia = diasLancados.get(data);
-  const conflito = outroNoMesmoDia && outroNoMesmoDia.id !== editando?.id;
+  const pedidosInfo = pedidosPorDia.get(data) ?? pedidosOutroMes.get(data);
+  const pedidosDia = pedidosInfo?.total ?? 0;
+  const jaLancado = !!editando && editando.data === data;
 
   async function salvar(evento: FormEvent) {
     evento.preventDefault();
@@ -399,10 +447,11 @@ function ModalLancamento({
   }
 
   return (
-    <Modal titulo={editando ? "Alterar lançamento" : "Inserir dados do caixa"} onFechar={onFechar}>
+    <Modal titulo={editando ? "Alterar dados do caixa" : "Inserir dados do caixa"} onFechar={onFechar}>
       <form onSubmit={salvar} className="mt-4 flex flex-col gap-4">
-        <Input label="Dia do caixa" type="date" value={data} max={dataLocalISO()} onChange={(e) => e.target.value && setData(e.target.value)} required />
-        {conflito && <p className="-mt-2 rounded-lg bg-gold/15 px-3 py-2 text-sm text-ink">O dia {formatarDataCalendario(data)} já tem lançamento ({formatarMoeda(outroNoMesmoDia.total)}). Feche e use “Alterar” nesse dia.</p>}
+        <Input label="Dia do caixa" type="date" value={data} max={dataLocalISO()} onChange={(e) => e.target.value && trocarDia(e.target.value)} required />
+        {procurandoDia && <p className="-mt-2 text-xs text-muted">Verificando o dia...</p>}
+        {jaLancado && !procurandoDia && <p className="-mt-2 rounded-lg bg-gold/15 px-3 py-2 text-sm text-ink">✏️ O dia {formatarDataCalendario(data)} já tem lançamento — você está <strong>alterando</strong> os valores dele.</p>}
         <p className="-mb-2 text-sm font-semibold text-ink">Entradas</p>
         <div className="grid grid-cols-2 gap-3 [&>*]:min-w-0">
           {FORMAS.map((forma) => (
@@ -429,7 +478,7 @@ function ModalLancamento({
         </div>
         <div className="rounded-lg bg-background px-4 py-3 text-sm">
           <div className="flex items-center justify-between gap-3"><span className="text-muted">Caixa da loja + CEASA</span><strong className="whitespace-nowrap text-ink">{formatarMoeda(total)}</strong></div>
-          <div className="mt-1 flex items-center justify-between gap-3"><span className="text-muted">🛵 Pedidos delivery entregues ({pedidosPorDia.get(data)?.quantidade ?? 0}) · automático</span><strong className="whitespace-nowrap text-ink">{formatarMoeda(pedidosDia)}</strong></div>
+          <div className="mt-1 flex items-center justify-between gap-3"><span className="text-muted">🛵 Pedidos delivery entregues ({pedidosInfo?.quantidade ?? 0}) · automático</span><strong className="whitespace-nowrap text-ink">{formatarMoeda(pedidosDia)}</strong></div>
           <div className="mt-1 flex items-center justify-between gap-3"><span className="text-muted">Gastos / sangrias</span><strong className="whitespace-nowrap text-danger">− {formatarMoeda(totalGastos)}</strong></div>
         </div>
         <div className="flex items-center justify-between rounded-lg bg-ink px-4 py-3 text-white">
@@ -443,7 +492,7 @@ function ModalLancamento({
         {erro && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variante="secundaria" onClick={onFechar}>Cancelar</Button>
-          <Button type="submit" tamanho="grande" disabled={salvando || !!conflito}>{salvando ? "Salvando..." : editando ? "Salvar alterações" : "Salvar lançamento"}</Button>
+          <Button type="submit" tamanho="grande" disabled={salvando || procurandoDia}>{salvando ? "Salvando..." : editando ? "Salvar alterações" : "Salvar lançamento"}</Button>
         </div>
       </form>
     </Modal>
