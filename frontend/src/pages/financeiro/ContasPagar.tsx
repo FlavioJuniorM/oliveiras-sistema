@@ -7,7 +7,7 @@ import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { CampoFornecedor } from "../../components/fornecedores/fornecedores";
-import { IconeCalendario, IconeLapis, IconeLista, IconeLixeira, IconeSetaDir, IconeSetaEsq } from "../../components/ui/Icones";
+import { IconeCaminhao, IconeCalendario, IconeLapis, IconeLista, IconeLixeira, IconeSetaDir, IconeSetaEsq } from "../../components/ui/Icones";
 
 interface ContaPagar {
   id: string;
@@ -54,7 +54,7 @@ export function ContasPagar() {
   const [contaPagamento, setContaPagamento] = useState<ContaPagar | null>(null);
   const [contaEdicao, setContaEdicao] = useState<ContaPagar | null>(null);
   const [contaExclusao, setContaExclusao] = useState<ContaPagar | null>(null);
-  const [visao, setVisao] = useState<"lista" | "calendario">("lista");
+  const [visao, setVisao] = useState<"fornecedores" | "lista" | "calendario">("fornecedores");
   const [erro, setErro] = useState("");
 
   async function carregar() {
@@ -102,11 +102,12 @@ export function ContasPagar() {
 
   return <div className="flex flex-col gap-5">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <p className="text-muted text-sm">Controle financeiro · {visao === "lista" ? `${visiveis.length} lançamento(s) visível(is)` : "contas por dia de vencimento"}</p>
+      <p className="text-muted text-sm">Controle financeiro · {visao === "lista" ? `${visiveis.length} lançamento(s) visível(is)` : visao === "fornecedores" ? "toque no fornecedor para ver os boletos dele" : "contas por dia de vencimento"}</p>
       <div className="flex flex-col gap-2 sm:flex-row">
-        <div role="tablist" aria-label="Forma de ver as contas" className="grid grid-cols-2 rounded-xl border border-border bg-white p-1">
-          <button type="button" role="tab" aria-selected={visao === "lista"} onClick={() => setVisao("lista")} className={`flex h-12 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold ${visao === "lista" ? "bg-ink text-white" : "text-ink hover:bg-background"}`}><IconeLista tamanho={18} />Lista</button>
-          <button type="button" role="tab" aria-selected={visao === "calendario"} onClick={() => setVisao("calendario")} className={`flex h-12 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold ${visao === "calendario" ? "bg-ink text-white" : "text-ink hover:bg-background"}`}><IconeCalendario tamanho={18} />Calendário</button>
+        <div role="tablist" aria-label="Forma de ver as contas" className="grid grid-cols-3 rounded-xl border border-border bg-white p-1">
+          <button type="button" role="tab" aria-selected={visao === "fornecedores"} onClick={() => setVisao("fornecedores")} className={`flex h-12 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold ${visao === "fornecedores" ? "bg-ink text-white" : "text-ink hover:bg-background"}`}><IconeCaminhao tamanho={18} />Fornecedores</button>
+          <button type="button" role="tab" aria-selected={visao === "lista"} onClick={() => setVisao("lista")} className={`flex h-12 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold ${visao === "lista" ? "bg-ink text-white" : "text-ink hover:bg-background"}`}><IconeLista tamanho={18} />Todas</button>
+          <button type="button" role="tab" aria-selected={visao === "calendario"} onClick={() => setVisao("calendario")} className={`flex h-12 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold ${visao === "calendario" ? "bg-ink text-white" : "text-ink hover:bg-background"}`}><IconeCalendario tamanho={18} />Calendário</button>
         </div>
         <Button tamanho="grande" onClick={() => setMostrarFormulario(true)}>Nova conta a pagar</Button>
       </div>
@@ -116,6 +117,7 @@ export function ContasPagar() {
     <Card><div className={`grid grid-cols-1 gap-3 ${visao === "lista" ? "md:grid-cols-[1fr_190px_190px]" : "md:grid-cols-[1fr_190px]"}`}><Input placeholder="Buscar fornecedor, descrição ou categoria..." value={busca} onChange={(e) => setBusca(e.target.value)} /><select aria-label="Filtrar por status" value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className={`h-11 rounded-lg border border-border bg-white px-3.5 text-sm ${visao === "lista" ? "" : "hidden"}`}><option value="TODOS">Todos os status</option><option value="PENDENTE">Pendentes</option><option value="PARCIAL">Parciais</option><option value="VENCIDO">Vencidas</option><option value="PAGO">Pagas</option><option value="CANCELADO">Canceladas</option></select><select value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)} className="h-11 rounded-lg border border-border bg-white px-3.5 text-sm"><option value="TODAS">Todas as categorias</option>{CATEGORIAS.map((categoria) => <option key={categoria} value={categoria}>{categoria}</option>)}</select></div></Card>
     {erro && <p className="rounded-lg bg-danger/10 px-4 py-3 text-sm text-danger">{erro}</p>}
     {visao === "calendario" && <CalendarioContas contas={doCalendario} {...acoes} />}
+    {visao === "fornecedores" && <ListaPorFornecedor contas={doCalendario} {...acoes} />}
     {visao === "lista" && <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{visiveis.map((conta) => <CartaoConta key={conta.id} conta={conta} onPagar={() => acoes.onPagar(conta)} onAlterar={() => acoes.onAlterar(conta)} onExcluir={() => acoes.onExcluir(conta)} />)}</div>}
     {visao === "lista" && visiveis.length === 0 && <Card className="text-center py-12"><p className="font-display text-2xl uppercase text-ink">Nenhuma conta encontrada</p><p className="text-muted text-sm mt-2">Ajuste os filtros ou lance uma nova conta.</p></Card>}
     {contaPagamento && <ModalPagamento conta={contaPagamento} onFechar={() => setContaPagamento(null)} onAtualizado={atualizarConta} />}
@@ -387,4 +389,176 @@ function CalendarioContas({ contas, onPagar, onAlterar, onExcluir }: { contas: C
       </>}
     </Card></div>
   </div>;
+}
+
+// ───────────── Lista por fornecedor ─────────────
+
+function chaveFornecedor(nome: string) {
+  return nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function textoPrazo(vencimento: string, hoje: string) {
+  const dias = Math.round((Date.parse(`${vencimento.slice(0, 10)}T00:00:00Z`) - Date.parse(`${hoje}T00:00:00Z`)) / 86_400_000);
+  if (dias === 0) return "vence hoje";
+  if (dias === 1) return "vence amanhã";
+  if (dias > 1) return `vence em ${dias} dias`;
+  return dias === -1 ? "venceu ontem" : `venceu há ${-dias} dias`;
+}
+
+interface GrupoFornecedor {
+  chave: string;
+  nome: string;
+  categorias: string[];
+  vencidas: ContaPagar[];
+  aVencer: ContaPagar[];
+  pagas: ContaPagar[];
+  totalAberto: number;
+  totalVencido: number;
+  totalPago: number;
+  proximo: string | null;
+}
+
+function ListaPorFornecedor({ contas, onPagar, onAlterar, onExcluir }: { contas: ContaPagar[]; onPagar: (c: ContaPagar) => void; onAlterar: (c: ContaPagar) => void; onExcluir: (c: ContaPagar) => void }) {
+  const hoje = hojeISO();
+  const [aberto, setAberto] = useState<string | null>(null);
+  const [verTodasPagas, setVerTodasPagas] = useState<string | null>(null);
+
+  const grupos = useMemo(() => {
+    const mapa = new Map<string, GrupoFornecedor>();
+    for (const c of contas) {
+      const chave = chaveFornecedor(c.fornecedor);
+      const g = mapa.get(chave) ?? { chave, nome: c.fornecedor, categorias: [], vencidas: [], aVencer: [], pagas: [], totalAberto: 0, totalVencido: 0, totalPago: 0, proximo: null };
+      if (!g.categorias.includes(c.categoria)) g.categorias.push(c.categoria);
+      g.totalPago += Number(c.valorPago || 0);
+      if (c.status === "PAGO") {
+        g.pagas.push(c);
+      } else {
+        const saldo = saldoDe(c);
+        g.totalAberto += saldo;
+        if (c.status === "VENCIDO") {
+          g.vencidas.push(c);
+          g.totalVencido += saldo;
+        } else {
+          g.aVencer.push(c);
+          const v = c.vencimento.slice(0, 10);
+          if (!g.proximo || v < g.proximo) g.proximo = v;
+        }
+      }
+      mapa.set(chave, g);
+    }
+    const lista = Array.from(mapa.values());
+    for (const g of lista) {
+      g.vencidas.sort((a, b) => a.vencimento.localeCompare(b.vencimento));
+      g.aVencer.sort((a, b) => a.vencimento.localeCompare(b.vencimento));
+      g.pagas.sort((a, b) => (b.dataPagamento ?? b.vencimento).localeCompare(a.dataPagamento ?? a.vencimento));
+    }
+    // Primeiro quem tem conta vencida, depois o vencimento mais próximo, por último quem só tem contas pagas
+    return lista.sort((a, b) => {
+      if ((b.vencidas.length > 0 ? 1 : 0) !== (a.vencidas.length > 0 ? 1 : 0)) return b.vencidas.length > 0 ? 1 : -1;
+      if (a.proximo && b.proximo) return a.proximo.localeCompare(b.proximo);
+      if (a.proximo || b.proximo) return a.proximo ? -1 : 1;
+      return a.nome.localeCompare(b.nome, "pt-BR");
+    });
+  }, [contas]);
+
+  if (grupos.length === 0) {
+    return <Card className="py-12 text-center"><p className="font-display text-2xl uppercase text-ink">Nenhuma conta encontrada</p><p className="mt-2 text-sm text-muted">Ajuste a busca ou lance uma nova conta.</p></Card>;
+  }
+
+  const linhaConta = (c: ContaPagar, tipo: "vencida" | "aVencer" | "paga") => {
+    const saldo = saldoDe(c);
+    const parcial = Number(c.valorPago || 0) > 0 && c.status !== "PAGO";
+    return (
+      <li key={c.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-ink">{c.descricao}</p>
+          <p className="text-xs text-muted">
+            {tipo === "paga"
+              ? `Venceu ${formatarDataCalendario(c.vencimento)}${c.dataPagamento ? ` · pago em ${formatarData(c.dataPagamento).slice(0, 10)}` : ""}${c.formaPagamento ? ` · ${c.formaPagamento}` : ""}`
+              : <>Vencimento <strong className={tipo === "vencida" ? "text-danger" : "text-ink"}>{formatarDataCalendario(c.vencimento)}</strong> · <span className={tipo === "vencida" ? "font-semibold text-danger" : ""}>{textoPrazo(c.vencimento, hoje)}</span>{parcial && ` · já pago ${formatarMoeda(c.valorPago || 0)}`}</>}
+            {c.codigoBarras && <span className="block break-all font-mono text-[11px]">▮▯▮ {c.codigoBarras}</span>}
+          </p>
+          {c.funcionarioId && <DetalheSalario conta={c} />}
+        </div>
+        <div className="flex shrink-0 items-center justify-between gap-2 sm:justify-end">
+          <div className="text-right">
+            <p className={`whitespace-nowrap font-display text-lg ${tipo === "vencida" ? "text-danger" : tipo === "paga" ? "text-success" : "text-ink"}`}>{formatarMoeda(tipo === "paga" ? Number(c.valor) : saldo)}</p>
+            {parcial && <p className="text-[11px] text-muted">de {formatarMoeda(c.valor)}</p>}
+          </div>
+          <div className="flex items-center gap-1">
+            {tipo !== "paga" && <Button className="!h-9 !px-3 text-xs" onClick={() => onPagar(c)}>Pagar</Button>}
+            <button type="button" onClick={() => onAlterar(c)} aria-label={`Alterar ${c.descricao}`} className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-ink hover:bg-background"><IconeLapis tamanho={15} /></button>
+            <button type="button" onClick={() => onExcluir(c)} aria-label={`Excluir ${c.descricao}`} className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-danger hover:bg-danger/5"><IconeLixeira tamanho={15} /></button>
+          </div>
+        </div>
+      </li>
+    );
+  };
+
+  const secao = (titulo: string, cor: string, lista: ContaPagar[], tipo: "vencida" | "aVencer" | "paga", total: number, rodape?: React.ReactNode) =>
+    lista.length > 0 && (
+      <div className="mt-3">
+        <p className={`flex items-center justify-between gap-2 rounded-lg px-3 py-1.5 text-xs font-bold uppercase tracking-wide ${cor}`}>
+          <span>{titulo} ({lista.length})</span>
+          <span className="whitespace-nowrap">{formatarMoeda(total)}</span>
+        </p>
+        <ul className="divide-y divide-border px-1">{lista.map((c) => linhaConta(c, tipo))}</ul>
+        {rodape}
+      </div>
+    );
+
+  return (
+    <div className="flex flex-col gap-3">
+      {grupos.map((g) => {
+        const expandido = aberto === g.chave;
+        const pagasVisiveis = verTodasPagas === g.chave ? g.pagas : g.pagas.slice(0, 5);
+        return (
+          <Card key={g.chave} padded={false} className={`overflow-hidden ${g.vencidas.length ? "border-danger/30" : ""}`}>
+            <button
+              type="button"
+              onClick={() => setAberto(expandido ? null : g.chave)}
+              aria-expanded={expandido}
+              className="flex w-full items-center gap-2.5 px-3 py-4 text-left hover:bg-background/60 sm:gap-3 sm:px-5"
+            >
+              <span className={`hidden h-11 w-11 shrink-0 items-center justify-center rounded-full font-display text-lg sm:flex ${g.vencidas.length ? "bg-danger/10 text-danger" : g.aVencer.length ? "bg-primary/10 text-primary" : "bg-success/10 text-success"}`} aria-hidden>
+                {g.nome.trim().charAt(0).toUpperCase()}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block break-words font-display text-lg uppercase leading-tight text-ink sm:text-xl">{g.nome}</span>
+                <span className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                  {g.vencidas.length > 0 && <span className="font-semibold text-danger">⚠ {g.vencidas.length} vencida(s)</span>}
+                  {g.aVencer.length > 0 && <span className="text-ink">{g.aVencer.length} a vencer{g.proximo && ` · próx. ${formatarDataCalendario(g.proximo).slice(0, 5)}`}</span>}
+                  {g.pagas.length > 0 && <span className="text-success">{g.pagas.length} paga(s)</span>}
+                  <span className="text-muted">{g.categorias.join(", ")}</span>
+                </span>
+              </span>
+              <span className="shrink-0 text-right">
+                <span className="block text-[11px] text-muted">{g.totalAberto > 0 ? "Em aberto" : "Tudo pago"}</span>
+                <span className={`block whitespace-nowrap font-display text-lg sm:text-xl ${g.vencidas.length ? "text-danger" : g.totalAberto > 0 ? "text-ink" : "text-success"}`}>{formatarMoeda(g.totalAberto > 0 ? g.totalAberto : g.totalPago)}</span>
+              </span>
+              <span className={`shrink-0 text-muted transition-transform ${expandido ? "rotate-90" : ""}`} aria-hidden><IconeSetaDir tamanho={18} /></span>
+            </button>
+            {expandido && (
+              <div className="border-t border-border bg-white px-3 pb-4 sm:px-5">
+                {secao("Vencidas", "bg-danger/10 text-danger", g.vencidas, "vencida", g.totalVencido)}
+                {secao("A vencer", "bg-primary/[0.07] text-primary", g.aVencer, "aVencer", g.totalAberto - g.totalVencido)}
+                {secao(
+                  "Pagas",
+                  "bg-success/10 text-success",
+                  pagasVisiveis,
+                  "paga",
+                  g.pagas.reduce((t, c) => t + Number(c.valor), 0),
+                  g.pagas.length > 5 && (
+                    <button type="button" onClick={() => setVerTodasPagas(verTodasPagas === g.chave ? null : g.chave)} className="mt-1 w-full rounded-lg py-2 text-sm font-semibold text-primary hover:bg-primary/5">
+                      {verTodasPagas === g.chave ? "Mostrar menos" : `Ver todas as ${g.pagas.length} pagas`}
+                    </button>
+                  )
+                )}
+              </div>
+            )}
+          </Card>
+        );
+      })}
+    </div>
+  );
 }
