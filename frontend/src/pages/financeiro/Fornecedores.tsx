@@ -5,6 +5,8 @@ import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { Button } from "../../components/ui/Button";
 import { IconeLapis, IconeLixeira, IconeMais } from "../../components/ui/Icones";
+import { Link } from "react-router-dom";
+import { chaveFornecedor, ListaPorFornecedor, type ContaPagar } from "./ContasPagar";
 import { CamposFornecedor, dadosVazios, normalizar, type DadosFornecedor, type Fornecedor } from "../../components/fornecedores/fornecedores";
 
 function linkWhatsApp(telefone: string) {
@@ -20,6 +22,7 @@ export function Fornecedores() {
   const [busca, setBusca] = useState("");
   const [edicao, setEdicao] = useState<{ fornecedor?: Fornecedor } | null>(null);
   const [exclusao, setExclusao] = useState<Fornecedor | null>(null);
+  const [boletosDe, setBoletosDe] = useState<Fornecedor | null>(null);
 
   async function carregar() {
     setCarregando(true);
@@ -88,6 +91,7 @@ export function Fornecedores() {
               {f.observacoes && <p className="mt-3 rounded-lg bg-background px-3 py-2 text-xs text-ink">{f.observacoes}</p>}
               <div className="mt-auto pt-4">
                 <p className="mb-3 text-xs text-muted">{f.quantidadeContas ? `${f.quantidadeContas} conta(s) lançada(s) em Contas a Pagar` : "Nenhuma conta lançada ainda"}</p>
+                <Button className="mb-2 w-full" onClick={() => setBoletosDe(f)}>🧾 Ver boletos (abertos e pagos)</Button>
                 <div className="flex gap-2">
                   <Button variante="secundaria" className="flex-1" onClick={() => setEdicao({ fornecedor: f })}><IconeLapis tamanho={16} />Alterar</Button>
                   <Button variante="secundaria" className="flex-1 !text-danger hover:!bg-danger/5" onClick={() => setExclusao(f)}><IconeLixeira tamanho={16} />Excluir</Button>
@@ -105,6 +109,7 @@ export function Fornecedores() {
           onSalvo={() => { setEdicao(null); carregar(); }}
         />
       )}
+      {boletosDe && <ModalBoletos fornecedor={boletosDe} onFechar={() => setBoletosDe(null)} />}
       {exclusao && (
         <ModalExcluir
           fornecedor={exclusao}
@@ -198,6 +203,40 @@ function ModalExcluir({ fornecedor, onFechar, onExcluido }: { fornecedor: Fornec
       <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button type="button" variante="secundaria" onClick={onFechar}>Não, manter</Button>
         <Button type="button" variante="perigo" disabled={excluindo} onClick={excluir}><IconeLixeira tamanho={16} />{excluindo ? "Excluindo..." : "Sim, excluir"}</Button>
+      </div>
+    </Modal>
+  );
+}
+
+/** Todos os boletos do fornecedor: vencidos, a vencer e pagos (com os comprovantes). */
+function ModalBoletos({ fornecedor, onFechar }: { fornecedor: Fornecedor; onFechar: () => void }) {
+  const [contas, setContas] = useState<ContaPagar[] | null>(null);
+  const [erro, setErro] = useState("");
+
+  async function carregar() {
+    try {
+      const todas = await api<ContaPagar[]>("/contas-pagar");
+      const chave = chaveFornecedor(fornecedor.nome);
+      setContas(todas.filter((c) => c.status !== "CANCELADO" && chaveFornecedor(c.fornecedor) === chave));
+    } catch (e) {
+      setErro(e instanceof ErroApi ? e.message : "Não foi possível carregar os boletos.");
+    }
+  }
+  useEffect(() => {
+    carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fornecedor.id]);
+
+  return (
+    <Modal titulo={`Boletos — ${fornecedor.nome}`} onFechar={onFechar}>
+      <p className="mt-1 text-sm text-muted">Vencidos, a vencer e pagos. Para pagar ou alterar, use{" "}
+        <Link to="/financeiro/contas-a-pagar" className="font-semibold text-primary hover:underline">Contas a Pagar</Link>.
+      </p>
+      <div className="mt-4">
+        {erro && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
+        {!erro && !contas && <p className="text-sm text-muted">Carregando...</p>}
+        {contas && contas.length === 0 && <p className="rounded-lg bg-background px-3 py-6 text-center text-sm text-muted">Nenhum boleto lançado para este fornecedor.</p>}
+        {contas && contas.length > 0 && <ListaPorFornecedor contas={contas} abrirPrimeiro onMudou={carregar} />}
       </div>
     </Modal>
   );

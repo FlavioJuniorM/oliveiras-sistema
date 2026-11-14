@@ -302,6 +302,7 @@ model ContaPagar {
   // Salário cheio do sábado (antes dos descontos). valor = salarioBruto − descontos
   salarioBruto   Decimal?     @map("salario_bruto") @db.Decimal(12, 2)
   descontos      DescontoFuncionario[]
+  anexos         AnexoConta[]
 
   @@unique([funcionarioId, vencimento])
   @@map("contas_pagar")
@@ -441,4 +442,26 @@ model DescontoFuncionario {
   @@index([funcionarioId, data])
   @@index([contaPagarId])
   @@map("descontos_funcionarios")
+}
+
+enum TipoAnexo {
+  COMPROVANTE // comprovante do pagamento (boleto pago, Pix...)
+  RECIBO_ASSINADO // recibo de salário assinado pelo funcionário
+}
+
+/// Arquivo (foto ou PDF) guardado junto de uma conta a pagar.
+model AnexoConta {
+  id           String     @id @default(uuid())
+  contaPagarId String     @map("conta_pagar_id")
+  contaPagar   ContaPagar @relation(fields: [contaPagarId], references: [id], onDelete: Cascade)
+  tipo         TipoAnexo
+  nome         String
+  tipoMime     String     @map("tipo_mime")
+  tamanho      Int
+  dados        Bytes
+  criadoPorId  String?    @map("criado_por_id")
+  criadoEm     DateTime   @default(now()) @map("criado_em")
+
+  @@index([contaPagarId])
+  @@map("anexos_contas")
 }

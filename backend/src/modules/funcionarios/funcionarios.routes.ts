@@ -9,7 +9,7 @@ import {
   excluirFuncionario,
   listarFuncionarios,
 } from "./funcionarios.service";
-import { excluirDesconto, folhaDoSabado, lancarDesconto, listarDescontos } from "./descontos.service";
+import { excluirDesconto, folhaDoSabado, historicoDoFuncionario, lancarDesconto, listarDescontos } from "./descontos.service";
 
 export const funcionariosRouter = Router();
 funcionariosRouter.use(autenticar, somentePapel("ADMINISTRATIVO"));
@@ -134,5 +134,13 @@ funcionariosRouter.delete("/descontos/:descontoId", async (req, res) => {
     return res.status(204).end();
   } catch (erro) {
     return tratarErro(res, erro, "Erro interno ao excluir o desconto.");
+  }
+});
+
+funcionariosRouter.get("/:id/historico", async (req, res) => {
+  try {
+    return res.json(await historicoDoFuncionario(req.params.id));
+  } catch (erro) {
+    return tratarErro(res, erro, "Erro interno ao carregar o histórico.");
   }
 });

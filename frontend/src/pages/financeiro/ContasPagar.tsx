@@ -7,6 +7,7 @@ import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { CampoFornecedor } from "../../components/fornecedores/fornecedores";
+import { BotaoAnexar, CampoArquivo, ListaAnexos, enviarAnexo, type Anexo } from "../../components/anexos/Anexos";
 import { IconeCaminhao, IconeCalendario, IconeLapis, IconeLista, IconeLixeira, IconeSetaDir, IconeSetaEsq } from "../../components/ui/Icones";
 
 interface ContaPagar {
@@ -16,6 +17,7 @@ interface ContaPagar {
   funcionario?: { id: string; nome: string; chavePix: string | null; registrado: boolean } | null;
   salarioBruto?: string | number | null;
   descontos?: { id: string; tipo: string; data: string; valor: string | number; descricao: string | null }[];
+  anexos?: Anexo[];
   fornecedor: string;
   descricao: string;
   categoria: string;
@@ -44,6 +46,8 @@ function dividirEmDuas(total: number): [number, number] {
   const segunda = Math.floor(centavos / 2);
   return [(centavos - segunda) / 100, segunda / 100];
 }
+
+export type { ContaPagar };
 
 export function ContasPagar() {
   const [contas, setContas] = useState<ContaPagar[]>([]);
@@ -117,8 +121,8 @@ export function ContasPagar() {
     <Card><div className={`grid grid-cols-1 gap-3 ${visao === "lista" ? "md:grid-cols-[1fr_190px_190px]" : "md:grid-cols-[1fr_190px]"}`}><Input placeholder="Buscar fornecedor, descrição ou categoria..." value={busca} onChange={(e) => setBusca(e.target.value)} /><select aria-label="Filtrar por status" value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className={`h-11 rounded-lg border border-border bg-white px-3.5 text-sm ${visao === "lista" ? "" : "hidden"}`}><option value="TODOS">Todos os status</option><option value="PENDENTE">Pendentes</option><option value="PARCIAL">Parciais</option><option value="VENCIDO">Vencidas</option><option value="PAGO">Pagas</option><option value="CANCELADO">Canceladas</option></select><select value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)} className="h-11 rounded-lg border border-border bg-white px-3.5 text-sm"><option value="TODAS">Todas as categorias</option>{CATEGORIAS.map((categoria) => <option key={categoria} value={categoria}>{categoria}</option>)}</select></div></Card>
     {erro && <p className="rounded-lg bg-danger/10 px-4 py-3 text-sm text-danger">{erro}</p>}
     {visao === "calendario" && <CalendarioContas contas={doCalendario} {...acoes} />}
-    {visao === "fornecedores" && <ListaPorFornecedor contas={doCalendario} {...acoes} />}
-    {visao === "lista" && <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{visiveis.map((conta) => <CartaoConta key={conta.id} conta={conta} onPagar={() => acoes.onPagar(conta)} onAlterar={() => acoes.onAlterar(conta)} onExcluir={() => acoes.onExcluir(conta)} />)}</div>}
+    {visao === "fornecedores" && <ListaPorFornecedor contas={doCalendario} {...acoes} onMudou={carregar} />}
+    {visao === "lista" && <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{visiveis.map((conta) => <CartaoConta key={conta.id} conta={conta} onPagar={() => acoes.onPagar(conta)} onAlterar={() => acoes.onAlterar(conta)} onExcluir={() => acoes.onExcluir(conta)} onMudou={carregar} />)}</div>}
     {visao === "lista" && visiveis.length === 0 && <Card className="text-center py-12"><p className="font-display text-2xl uppercase text-ink">Nenhuma conta encontrada</p><p className="text-muted text-sm mt-2">Ajuste os filtros ou lance uma nova conta.</p></Card>}
     {contaPagamento && <ModalPagamento conta={contaPagamento} onFechar={() => setContaPagamento(null)} onAtualizado={atualizarConta} />}
     {contaEdicao && <ModalAlterarConta conta={contaEdicao} onFechar={() => setContaEdicao(null)} onAtualizado={atualizarConta} />}
@@ -129,9 +133,9 @@ export function ContasPagar() {
 function Resumo({ titulo, valor, alerta = false }: { titulo: string; valor: string; alerta?: boolean }) { return <Card className={alerta ? "border-danger/30" : ""}><p className="text-xs text-muted">{titulo}</p><p className={`font-display text-2xl mt-1 ${alerta ? "text-danger" : "text-ink"}`}>{valor}</p></Card>; }
 function Info({ label, valor }: { label: string; valor: string }) { return <div><p className="text-xs text-muted">{label}</p><p className="font-semibold text-ink mt-1">{valor}</p></div>; }
 
-function CartaoConta({ conta, onPagar, onAlterar, onExcluir }: { conta: ContaPagar; onPagar: () => void; onAlterar: () => void; onExcluir: () => void }) {
+function CartaoConta({ conta, onPagar, onAlterar, onExcluir, onMudou }: { conta: ContaPagar; onPagar: () => void; onAlterar: () => void; onExcluir: () => void; onMudou: () => void }) {
   const paga = conta.status === "PAGO"; const cancelada = conta.status === "CANCELADO"; const saldo = conta.saldo ?? Number(conta.valor) - Number(conta.valorPago || 0);
-  return <Card className={cancelada ? "opacity-60" : ""}><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex flex-wrap items-center gap-2"><p className="font-display text-xl uppercase text-ink">{conta.fornecedor}</p><StatusBadge status={conta.status} />{conta.funcionarioId && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">👷 Salário de sábado</span>}</div><p className="text-sm text-ink mt-1">{conta.descricao}</p>{conta.funcionarioId && <DetalheSalario conta={conta} />}<p className="text-xs text-muted mt-1">{conta.categoria}{conta.funcionario?.chavePix && ` · Pix: ${conta.funcionario.chavePix}`}</p>{conta.codigoBarras && <p className="mt-1 break-all font-mono text-[11px] text-muted" title="Código de barras do boleto">▮▯▮ {conta.codigoBarras}</p>}</div><div className="sm:text-right"><p className="text-xs text-muted">Valor da conta</p><p className="font-display text-2xl text-ink">{formatarMoeda(conta.valor)}</p></div></div><div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-4 text-sm md:grid-cols-4"><Info label="Lançamento" valor={formatarDataCalendario(conta.dataLancamento)} /><Info label="Vencimento" valor={formatarDataCalendario(conta.vencimento)} /><Info label="Pago" valor={formatarMoeda(conta.valorPago || 0)} /><Info label="Saldo" valor={formatarMoeda(saldo)} /></div>{(conta.dataPagamento || conta.formaPagamento || conta.observacoes) && <div className="mt-3 rounded-lg bg-background px-3 py-2 text-xs text-muted">{conta.dataPagamento && `Último pagamento: ${formatarData(conta.dataPagamento)}`}{conta.formaPagamento && ` · ${conta.formaPagamento}`}{conta.observacoes && <span className="block mt-1">Obs.: {conta.observacoes}</span>}</div>}<div className="mt-4 flex flex-wrap gap-2">{!paga && !cancelada && <Button className="w-full sm:w-auto" onClick={onPagar}>{Number(conta.valorPago || 0) > 0 ? "Registrar pagamento restante" : "Registrar pagamento"}</Button>}<Button variante="secundaria" className="flex-1 sm:flex-none" onClick={onAlterar}><IconeLapis tamanho={16} />Alterar</Button><Button variante="secundaria" className="flex-1 !text-danger hover:!bg-danger/5 sm:flex-none" onClick={onExcluir}><IconeLixeira tamanho={16} />Excluir</Button></div></Card>;
+  return <Card className={cancelada ? "opacity-60" : ""}><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex flex-wrap items-center gap-2"><p className="font-display text-xl uppercase text-ink">{conta.fornecedor}</p><StatusBadge status={conta.status} />{conta.funcionarioId && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">👷 Salário de sábado</span>}</div><p className="text-sm text-ink mt-1">{conta.descricao}</p>{conta.funcionarioId && <DetalheSalario conta={conta} />}<p className="text-xs text-muted mt-1">{conta.categoria}{conta.funcionario?.chavePix && ` · Pix: ${conta.funcionario.chavePix}`}</p>{conta.codigoBarras && <p className="mt-1 break-all font-mono text-[11px] text-muted" title="Código de barras do boleto">▮▯▮ {conta.codigoBarras}</p>}</div><div className="sm:text-right"><p className="text-xs text-muted">Valor da conta</p><p className="font-display text-2xl text-ink">{formatarMoeda(conta.valor)}</p></div></div><div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-4 text-sm md:grid-cols-4"><Info label="Lançamento" valor={formatarDataCalendario(conta.dataLancamento)} /><Info label="Vencimento" valor={formatarDataCalendario(conta.vencimento)} /><Info label="Pago" valor={formatarMoeda(conta.valorPago || 0)} /><Info label="Saldo" valor={formatarMoeda(saldo)} /></div>{(conta.dataPagamento || conta.formaPagamento || conta.observacoes) && <div className="mt-3 rounded-lg bg-background px-3 py-2 text-xs text-muted">{conta.dataPagamento && `Último pagamento: ${formatarData(conta.dataPagamento)}`}{conta.formaPagamento && ` · ${conta.formaPagamento}`}{conta.observacoes && <span className="block mt-1">Obs.: {conta.observacoes}</span>}</div>}<div className="mt-3 flex flex-wrap items-center gap-1.5"><ListaAnexos anexos={conta.anexos ?? []} onExcluido={onMudou} /><BotaoAnexar contaPagarId={conta.id} tipo={conta.funcionarioId ? "RECIBO_ASSINADO" : "COMPROVANTE"} rotulo={conta.funcionarioId ? "Anexar recibo assinado" : "Anexar comprovante"} onEnviado={onMudou} /></div><div className="mt-4 flex flex-wrap gap-2">{!paga && !cancelada && <Button className="w-full sm:w-auto" onClick={onPagar}>{Number(conta.valorPago || 0) > 0 ? "Registrar pagamento restante" : "Registrar pagamento"}</Button>}<Button variante="secundaria" className="flex-1 sm:flex-none" onClick={onAlterar}><IconeLapis tamanho={16} />Alterar</Button><Button variante="secundaria" className="flex-1 !text-danger hover:!bg-danger/5 sm:flex-none" onClick={onExcluir}><IconeLixeira tamanho={16} />Excluir</Button></div></Card>;
 }
 
 const ROTULO_DESCONTO: Record<string, string> = { ADIANTAMENTO: "💵 Adiantamento", VALE: "🎟️ Vale", CARNE: "🥩 Carne / produtos", OUTRO: "📝 Outro desconto" };
@@ -176,8 +180,20 @@ function FormularioContaPagar({ onCancelar, onCriado }: { onCancelar: () => void
 
 function ModalPagamento({ conta, onFechar, onAtualizado }: { conta: ContaPagar; onFechar: () => void; onAtualizado: (conta: ContaPagar) => void }) {
   const saldo = Number(conta.saldo ?? Number(conta.valor) - Number(conta.valorPago || 0)); const [valorPago, setValorPago] = useState(String(saldo)); const [formaPagamento, setFormaPagamento] = useState(FORMAS_PAGAMENTO[1]); const [erro, setErro] = useState(""); const [enviando, setEnviando] = useState(false);
-  async function salvar(evento: FormEvent) { evento.preventDefault(); setErro(""); setEnviando(true); try { const atualizada = await api<ContaPagar>(`/contas-pagar/${conta.id}/pagar`, { method: "PATCH", body: { valorPago: Number(valorPago), formaPagamento } }); onAtualizado(atualizada); } catch (e) { setErro(e instanceof ErroApi ? e.message : "Erro ao registrar pagamento."); } finally { setEnviando(false); } }
-  return <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 px-4"><Card className="w-full max-w-lg"><div className="flex items-start justify-between"><div><p className="font-display text-2xl uppercase text-ink">Registrar pagamento</p><p className="text-sm text-muted mt-1">{conta.fornecedor} · {conta.descricao}</p></div><button type="button" onClick={onFechar} className="text-2xl text-muted">×</button></div><div className="mt-5 grid grid-cols-2 gap-3 rounded-lg bg-background p-4"><Info label="Valor total" valor={formatarMoeda(conta.valor)} /><Info label="Saldo atual" valor={formatarMoeda(saldo)} /></div><form onSubmit={salvar} className="mt-5 flex flex-col gap-4"><Input label="Valor pago agora (R$)" type="number" min="0.01" max={saldo} step="0.01" value={valorPago} onChange={(e) => setValorPago(e.target.value)} required /><div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-ink">Forma de pagamento</label><select value={formaPagamento} onChange={(e) => setFormaPagamento(e.target.value)} className="h-11 rounded-lg border border-border bg-white px-3.5 text-sm">{FORMAS_PAGAMENTO.map((forma) => <option key={forma}>{forma}</option>)}</select></div>{erro && <p className="text-sm text-danger">{erro}</p>}<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variante="secundaria" onClick={onFechar}>Cancelar</Button><Button type="submit" disabled={enviando}>{enviando ? "Confirmando..." : "Confirmar pagamento"}</Button></div></form></Card></div>;
+  const [comprovante, setComprovante] = useState<File | null>(null); const [pagoSemArquivo, setPagoSemArquivo] = useState<ContaPagar | null>(null);
+  async function salvar(evento: FormEvent) {
+    evento.preventDefault(); setErro(""); setEnviando(true);
+    try {
+      // Se o pagamento já foi salvo e só o arquivo falhou, tenta enviar só o arquivo de novo
+      const atualizada = pagoSemArquivo ?? await api<ContaPagar>(`/contas-pagar/${conta.id}/pagar`, { method: "PATCH", body: { valorPago: Number(valorPago), formaPagamento } });
+      if (comprovante) {
+        try { await enviarAnexo(conta.id, conta.funcionarioId ? "RECIBO_ASSINADO" : "COMPROVANTE", comprovante); }
+        catch (e) { setPagoSemArquivo(atualizada); setErro(`Pagamento registrado, mas o arquivo não foi enviado: ${e instanceof ErroApi ? e.message : "tente de novo"}.`); return; }
+      }
+      onAtualizado(atualizada);
+    } catch (e) { setErro(e instanceof ErroApi ? e.message : "Erro ao registrar pagamento."); } finally { setEnviando(false); }
+  }
+  return <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 sm:items-center sm:px-4"><Card className="max-h-[94vh] w-full max-w-lg overflow-y-auto rounded-b-none sm:rounded-b-card"><div className="flex items-start justify-between"><div><p className="font-display text-2xl uppercase text-ink">Registrar pagamento</p><p className="text-sm text-muted mt-1">{conta.fornecedor} · {conta.descricao}</p></div><button type="button" onClick={onFechar} className="text-2xl text-muted">×</button></div><div className="mt-5 grid grid-cols-2 gap-3 rounded-lg bg-background p-4"><Info label="Valor total" valor={formatarMoeda(conta.valor)} /><Info label="Saldo atual" valor={formatarMoeda(saldo)} /></div><form onSubmit={salvar} className="mt-5 flex flex-col gap-4"><Input label="Valor pago agora (R$)" type="number" min="0.01" max={saldo} step="0.01" value={valorPago} onChange={(e) => setValorPago(e.target.value)} required /><div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-ink">Forma de pagamento</label><select value={formaPagamento} onChange={(e) => setFormaPagamento(e.target.value)} className="h-11 rounded-lg border border-border bg-white px-3.5 text-sm">{FORMAS_PAGAMENTO.map((forma) => <option key={forma}>{forma}</option>)}</select></div><CampoArquivo arquivo={comprovante} onChange={setComprovante} rotulo={conta.funcionarioId ? "Recibo assinado (opcional)" : "Comprovante do pagamento (opcional)"} dica={conta.funcionarioId ? "Foto do recibo assinado pelo funcionário" : "Foto do comprovante ou PDF do banco"} />{erro && <p className="text-sm text-danger">{erro}</p>}<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variante="secundaria" onClick={pagoSemArquivo ? () => onAtualizado(pagoSemArquivo) : onFechar}>{pagoSemArquivo ? "Fechar sem o arquivo" : "Cancelar"}</Button><Button type="submit" disabled={enviando}>{enviando ? "Salvando..." : pagoSemArquivo ? "Enviar o arquivo de novo" : "Confirmar pagamento"}</Button></div></form></Card></div>;
 }
 
 function ModalBase({ titulo, subtitulo, onFechar, children, largura = "max-w-lg" }: { titulo: string; subtitulo?: string; onFechar: () => void; children: React.ReactNode; largura?: string }) {
@@ -393,7 +409,7 @@ function CalendarioContas({ contas, onPagar, onAlterar, onExcluir }: { contas: C
 
 // ───────────── Lista por fornecedor ─────────────
 
-function chaveFornecedor(nome: string) {
+export function chaveFornecedor(nome: string) {
   return nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
@@ -418,9 +434,9 @@ interface GrupoFornecedor {
   proximo: string | null;
 }
 
-function ListaPorFornecedor({ contas, onPagar, onAlterar, onExcluir }: { contas: ContaPagar[]; onPagar: (c: ContaPagar) => void; onAlterar: (c: ContaPagar) => void; onExcluir: (c: ContaPagar) => void }) {
+export function ListaPorFornecedor({ contas, onPagar, onAlterar, onExcluir, onMudou, abrirPrimeiro = false }: { contas: ContaPagar[]; onPagar?: (c: ContaPagar) => void; onAlterar?: (c: ContaPagar) => void; onExcluir?: (c: ContaPagar) => void; onMudou?: () => void; abrirPrimeiro?: boolean }) {
   const hoje = hojeISO();
-  const [aberto, setAberto] = useState<string | null>(null);
+  const [aberto, setAberto] = useState<string | null>(abrirPrimeiro && contas[0] ? chaveFornecedor(contas[0].fornecedor) : null);
   const [verTodasPagas, setVerTodasPagas] = useState<string | null>(null);
 
   const grupos = useMemo(() => {
@@ -479,17 +495,25 @@ function ListaPorFornecedor({ contas, onPagar, onAlterar, onExcluir }: { contas:
             {c.codigoBarras && <span className="block break-all font-mono text-[11px]">▮▯▮ {c.codigoBarras}</span>}
           </p>
           {c.funcionarioId && <DetalheSalario conta={c} />}
+          {onMudou ? (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <ListaAnexos anexos={c.anexos ?? []} onExcluido={onMudou} />
+              <BotaoAnexar contaPagarId={c.id} tipo={c.funcionarioId ? "RECIBO_ASSINADO" : "COMPROVANTE"} rotulo={c.funcionarioId ? "Anexar recibo" : "Anexar comprovante"} onEnviado={onMudou} />
+            </div>
+          ) : (
+            (c.anexos?.length ?? 0) > 0 && <div className="mt-1.5"><ListaAnexos anexos={c.anexos ?? []} /></div>
+          )}
         </div>
         <div className="flex shrink-0 items-center justify-between gap-2 sm:justify-end">
           <div className="text-right">
             <p className={`whitespace-nowrap font-display text-lg ${tipo === "vencida" ? "text-danger" : tipo === "paga" ? "text-success" : "text-ink"}`}>{formatarMoeda(tipo === "paga" ? Number(c.valor) : saldo)}</p>
             {parcial && <p className="text-[11px] text-muted">de {formatarMoeda(c.valor)}</p>}
           </div>
-          <div className="flex items-center gap-1">
-            {tipo !== "paga" && <Button className="!h-9 !px-3 text-xs" onClick={() => onPagar(c)}>Pagar</Button>}
-            <button type="button" onClick={() => onAlterar(c)} aria-label={`Alterar ${c.descricao}`} className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-ink hover:bg-background"><IconeLapis tamanho={15} /></button>
-            <button type="button" onClick={() => onExcluir(c)} aria-label={`Excluir ${c.descricao}`} className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-danger hover:bg-danger/5"><IconeLixeira tamanho={15} /></button>
-          </div>
+          {(onPagar || onAlterar || onExcluir) && <div className="flex items-center gap-1">
+            {tipo !== "paga" && onPagar && <Button className="!h-9 !px-3 text-xs" onClick={() => onPagar(c)}>Pagar</Button>}
+            {onAlterar && <button type="button" onClick={() => onAlterar(c)} aria-label={`Alterar ${c.descricao}`} className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-ink hover:bg-background"><IconeLapis tamanho={15} /></button>}
+            {onExcluir && <button type="button" onClick={() => onExcluir(c)} aria-label={`Excluir ${c.descricao}`} className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-danger hover:bg-danger/5"><IconeLixeira tamanho={15} /></button>}
+          </div>}
         </div>
       </li>
     );

@@ -198,3 +198,54 @@ export async function folhaDoSabado(sabado: Date, funcionarioId?: string) {
       };
     });
 }
+
+/** Histórico de pagamentos (todos os sábados) do funcionário, com descontos e recibos anexados. */
+export async function historicoDoFuncionario(funcionarioId: string) {
+  await gerarSalariosDeSabado();
+  const funcionario = await prisma.funcionario.findUnique({ where: { id: funcionarioId } });
+  if (!funcionario) throw new ErroFuncionario("Funcionário não encontrado.");
+  const contas = await prisma.contaPagar.findMany({
+    where: { funcionarioId, status: { not: "CANCELADO" } },
+    orderBy: { vencimento: "desc" },
+    include: {
+      descontos: { orderBy: [{ data: "asc" }, { criadoEm: "asc" }] },
+      anexos: { orderBy: { criadoEm: "asc" }, select: { id: true, tipo: true, nome: true, tipoMime: true, tamanho: true, criadoEm: true } },
+    },
+  });
+  const hoje = hojeCalendario();
+  // Do sábado desta semana para trás primeiro (mais recente no topo); sábados futuros depois
+  const limite = sabadoAPartirDe(hoje).getTime();
+  contas.sort((a, b) => {
+    const fa = a.vencimento.getTime() > limite;
+    const fb = b.vencimento.getTime() > limite;
+    if (fa !== fb) return fa ? 1 : -1;
+    return fa ? a.vencimento.getTime() - b.vencimento.getTime() : b.vencimento.getTime() - a.vencimento.getTime();
+  });
+  const pagamentos = contas.map((c) => {
+    const pago = c.status === "PAGO";
+    return {
+      contaId: c.id,
+      sabado: c.vencimento,
+      salarioBruto: Number(c.salarioBruto ?? c.valor),
+      totalDescontos: c.descontos.reduce((t, d) => t + Number(d.valor), 0),
+      liquido: Number(c.valor),
+      valorPago: Number(c.valorPago),
+      status: pago ? "PAGO" : c.vencimento < hoje ? "VENCIDO" : c.status,
+      dataPagamento: c.dataPagamento,
+      formaPagamento: c.formaPagamento,
+      descontos: c.descontos.map((d) => ({ ...formatarDesconto(d), sabado: c.vencimento })),
+      anexos: c.anexos,
+    };
+  });
+  const pagos = pagamentos.filter((p) => p.status === "PAGO");
+  return {
+    funcionario: { id: funcionario.id, nome: funcionario.nome, funcao: funcionario.funcao, salario: Number(funcionario.salario), registrado: funcionario.registrado },
+    resumo: {
+      totalRecebido: pagos.reduce((t, p) => t + p.valorPago, 0),
+      totalDescontado: pagos.reduce((t, p) => t + p.totalDescontos, 0),
+      semanasPagas: pagos.length,
+      semRecibo: pagos.filter((p) => !p.anexos.some((a) => a.tipo === "RECIBO_ASSINADO")).length,
+    },
+    pagamentos,
+  };
+}

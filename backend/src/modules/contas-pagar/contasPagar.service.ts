@@ -32,6 +32,7 @@ export async function listarContasPagar(filtros: FiltrosContaPagar) {
     include: {
       funcionario: { select: { id: true, nome: true, chavePix: true, registrado: true } },
       descontos: { orderBy: [{ data: "asc" }, { criadoEm: "asc" }], select: { id: true, tipo: true, data: true, valor: true, descricao: true } },
+      anexos: { orderBy: { criadoEm: "asc" }, select: { id: true, tipo: true, nome: true, tipoMime: true, tamanho: true, criadoEm: true } },
     },
   });
 

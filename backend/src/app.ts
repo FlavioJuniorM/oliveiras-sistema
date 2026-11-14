@@ -17,6 +17,7 @@ import { motoboysRouter } from "./modules/motoboys/motoboys.routes";
 import { caixaRouter } from "./modules/caixa/caixa.routes";
 import { fornecedoresRouter } from "./modules/fornecedores/fornecedores.routes";
 import { funcionariosRouter } from "./modules/funcionarios/funcionarios.routes";
+import { anexosRouter } from "./modules/anexos/anexos.routes";
 import { avisosRouter } from "./modules/avisos/avisos.routes";
 
 export const app = express();
@@ -65,6 +66,7 @@ app.use("/motoboys", motoboysRouter);
 app.use("/caixa", caixaRouter);
 app.use("/fornecedores", fornecedoresRouter);
 app.use("/funcionarios", funcionariosRouter);
+app.use("/anexos", anexosRouter);
 app.use("/avisos", avisosRouter);
 
 // MVP completo (seção 21). Próximas melhorias possíveis: estoque, integração fiscal

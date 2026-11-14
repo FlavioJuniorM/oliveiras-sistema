@@ -7,6 +7,7 @@ import { Input } from "../../components/ui/Input";
 import { Button } from "../../components/ui/Button";
 import { IconeDownload, IconeLapis, IconeLixeira, IconeMais } from "../../components/ui/Icones";
 import type { FolhaFuncionario } from "./folhaPdf";
+import { BotaoAnexar, ListaAnexos, type Anexo } from "../../components/anexos/Anexos";
 import { normalizar } from "../../components/fornecedores/fornecedores";
 
 interface Funcionario {
@@ -59,6 +60,7 @@ export function Funcionarios() {
   const [aviso, setAviso] = useState("");
   const [descontosDe, setDescontosDe] = useState<Funcionario | null>(null);
   const [folha, setFolha] = useState<{ funcionario?: Funcionario } | null>(null);
+  const [historicoDe, setHistoricoDe] = useState<Funcionario | null>(null);
 
   async function carregar() {
     setCarregando(true);
@@ -144,7 +146,10 @@ export function Funcionarios() {
             <Card key={f.id} className={`flex flex-col ${inativo ? "opacity-70" : ""}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="break-words font-display text-xl uppercase text-ink">{f.nome}</p>
+                  <button type="button" onClick={() => setHistoricoDe(f)} className="text-left" title="Ver histórico de pagamentos">
+                    <span className="break-words font-display text-xl uppercase text-ink underline decoration-primary/40 decoration-2 underline-offset-4 hover:text-primary">{f.nome}</span>
+                    <span className="block text-xs font-semibold text-primary">Ver histórico de pagamentos ›</span>
+                  </button>
                   <p className="text-sm text-muted">{f.funcao || "Função não informada"}</p>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
@@ -197,6 +202,7 @@ export function Funcionarios() {
         />
       )}
       {descontosDe && <ModalDescontos funcionario={descontosDe} onFechar={() => setDescontosDe(null)} onMudou={carregar} />}
+      {historicoDe && <ModalHistorico funcionario={historicoDe} onFechar={() => setHistoricoDe(null)} onFolha={() => { setFolha({ funcionario: historicoDe }); setHistoricoDe(null); }} />}
       {folha && <ModalFolha funcionario={folha.funcionario} onFechar={() => setFolha(null)} />}
       {exclusao && (
         <ModalExcluir
@@ -674,6 +680,156 @@ function ModalFolha({ funcionario, onFechar }: { funcionario?: Funcionario; onFe
           {gerando ? "Gerando PDF..." : folhas && folhas.length > 1 ? `Baixar PDF (${folhas.length} recibos)` : "Baixar PDF para assinar"}
         </Button>
       </div>
+    </Modal>
+  );
+}
+
+// ───────────── Histórico de pagamentos do funcionário ─────────────
+
+interface PagamentoHistorico {
+  contaId: string;
+  sabado: string;
+  salarioBruto: number;
+  totalDescontos: number;
+  liquido: number;
+  valorPago: number;
+  status: string;
+  dataPagamento: string | null;
+  formaPagamento: string | null;
+  descontos: Desconto[];
+  anexos: Anexo[];
+}
+
+interface Historico {
+  funcionario: { id: string; nome: string; funcao: string | null; salario: number; registrado: boolean };
+  resumo: { totalRecebido: number; totalDescontado: number; semanasPagas: number; semRecibo: number };
+  pagamentos: PagamentoHistorico[];
+}
+
+function ModalHistorico({ funcionario, onFechar, onFolha }: { funcionario: Funcionario; onFechar: () => void; onFolha: () => void }) {
+  const [dados, setDados] = useState<Historico | null>(null);
+  const [erro, setErro] = useState("");
+  const [filtro, setFiltro] = useState<"todos" | "pagos" | "abertos" | "semRecibo">("todos");
+  const [aberto, setAberto] = useState<string | null>(null);
+  const [baixando, setBaixando] = useState<string | null>(null);
+
+  async function carregar() {
+    try {
+      setDados(await api<Historico>(`/funcionarios/${funcionario.id}/historico`));
+    } catch (e) {
+      setErro(e instanceof ErroApi ? e.message : "Não foi possível carregar o histórico.");
+    }
+  }
+  useEffect(() => {
+    carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [funcionario.id]);
+
+  async function baixarRecibo(sabado: string) {
+    setBaixando(sabado);
+    try {
+      const folhas = await api<FolhaFuncionario[]>(`/funcionarios/folha?sabado=${sabado.slice(0, 10)}&funcionarioId=${funcionario.id}`);
+      const { gerarPdfFolha } = await import("./folhaPdf");
+      await gerarPdfFolha(folhas);
+    } catch (e) {
+      setErro(e instanceof ErroApi ? e.message : "Não foi possível gerar o recibo.");
+    } finally {
+      setBaixando(null);
+    }
+  }
+
+  const temRecibo = (p: PagamentoHistorico) => p.anexos.some((a) => a.tipo === "RECIBO_ASSINADO");
+  const lista = (dados?.pagamentos ?? []).filter((p) =>
+    filtro === "pagos" ? p.status === "PAGO" : filtro === "abertos" ? p.status !== "PAGO" : filtro === "semRecibo" ? p.status === "PAGO" && !temRecibo(p) : true
+  );
+  const STATUS: Record<string, [string, string]> = {
+    PAGO: ["Pago", "bg-success/10 text-success"],
+    VENCIDO: ["Não confirmado", "bg-danger/10 text-danger"],
+    PARCIAL: ["Pago em parte", "bg-gold/15 text-gold-texto"],
+    PENDENTE: ["A pagar", "bg-primary/10 text-primary"],
+  };
+
+  return (
+    <Modal titulo={funcionario.nome} onFechar={onFechar}>
+      <p className="text-sm text-muted">{funcionario.funcao || "Função não informada"} · {formatarMoeda(funcionario.salario)} por sábado · {funcionario.registrado ? "carteira assinada" : "sem registro"}</p>
+
+      {dados && (
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="rounded-lg bg-success/[0.08] px-3 py-2"><p className="text-xs text-muted">Total recebido</p><p className="whitespace-nowrap font-display text-lg text-success">{formatarMoeda(dados.resumo.totalRecebido)}</p></div>
+          <div className="rounded-lg bg-background px-3 py-2"><p className="text-xs text-muted">Semanas pagas</p><p className="font-display text-lg text-ink">{dados.resumo.semanasPagas}</p></div>
+          <div className="rounded-lg bg-danger/[0.06] px-3 py-2"><p className="text-xs text-muted">Total descontado</p><p className="whitespace-nowrap font-display text-lg text-danger">{formatarMoeda(dados.resumo.totalDescontado)}</p></div>
+          <button type="button" onClick={() => setFiltro("semRecibo")} className={`rounded-lg px-3 py-2 text-left ${dados.resumo.semRecibo ? "bg-gold/15" : "bg-background"}`}>
+            <p className="text-xs text-muted">Pagos sem recibo assinado</p>
+            <p className={`font-display text-lg ${dados.resumo.semRecibo ? "text-gold-texto" : "text-success"}`}>{dados.resumo.semRecibo || "Nenhum"}</p>
+          </button>
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {([
+          ["todos", "Todos"],
+          ["pagos", "Pagos"],
+          ["abertos", "A pagar"],
+          ["semRecibo", "Sem recibo"],
+        ] as const).map(([id, rotulo]) => (
+          <button key={id} type="button" onClick={() => setFiltro(id)} className={`h-9 rounded-full border px-3.5 text-sm font-semibold ${filtro === id ? "border-ink bg-ink text-white" : "border-border bg-white text-ink"}`}>
+            {rotulo}
+          </button>
+        ))}
+        <button type="button" onClick={onFolha} className="ml-auto h-9 rounded-full px-3 text-sm font-semibold text-primary hover:bg-primary/5">🧾 Gerar folha</button>
+      </div>
+
+      {erro && <p role="alert" className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
+      {!dados && !erro && <p className="mt-4 text-sm text-muted">Carregando...</p>}
+      {dados && lista.length === 0 && <p className="mt-4 rounded-lg bg-background px-3 py-6 text-center text-sm text-muted">Nada aqui.</p>}
+
+      <ul className="mt-3 flex flex-col gap-2">
+        {lista.map((p) => {
+          const [rotuloStatus, corStatus] = STATUS[p.status] ?? [p.status, "bg-background text-muted"];
+          const expandido = aberto === p.contaId;
+          return (
+            <li key={p.contaId} className="rounded-lg border border-border">
+              <button type="button" onClick={() => setAberto(expandido ? null : p.contaId)} aria-expanded={expandido} className="flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-background/60">
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-ink">Sábado {formatarDataCalendario(p.sabado)}</p>
+                  <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                    <span className={`rounded-full px-2 py-0.5 font-semibold ${corStatus}`}>{rotuloStatus}</span>
+                    {p.totalDescontos > 0 && <span className="text-danger">− {formatarMoeda(p.totalDescontos)} em descontos</span>}
+                    {p.status === "PAGO" && (temRecibo(p) ? <span className="font-semibold text-success">✔ recibo assinado</span> : <span className="font-semibold text-gold-texto">sem recibo assinado</span>)}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="whitespace-nowrap font-display text-lg text-ink">{formatarMoeda(p.status === "PAGO" ? p.valorPago || p.liquido : p.liquido)}</p>
+                  {p.totalDescontos > 0 && <p className="text-[11px] text-muted">de {formatarMoeda(p.salarioBruto)}</p>}
+                </div>
+                <span className={`shrink-0 text-muted transition-transform ${expandido ? "rotate-90" : ""}`} aria-hidden>›</span>
+              </button>
+              {expandido && (
+                <div className="border-t border-border px-3 pb-3 pt-2 text-sm">
+                  <ul className="divide-y divide-border">
+                    <li className="flex justify-between gap-3 py-1.5"><span className="text-ink">Salário da semana</span><strong className="whitespace-nowrap">{formatarMoeda(p.salarioBruto)}</strong></li>
+                    {p.descontos.map((d) => (
+                      <li key={d.id} className="flex justify-between gap-3 py-1.5">
+                        <span className="min-w-0 text-ink">{d.rotulo}<span className="block text-xs text-muted">Pegou em {formatarDataCalendario(d.data)}{d.descricao ? ` · ${d.descricao}` : ""}</span></span>
+                        <strong className="whitespace-nowrap text-danger">− {formatarMoeda(d.valor)}</strong>
+                      </li>
+                    ))}
+                    <li className="flex justify-between gap-3 py-1.5"><span className="font-semibold text-ink">Valor líquido</span><strong className="whitespace-nowrap">{formatarMoeda(p.liquido)}</strong></li>
+                  </ul>
+                  {p.dataPagamento && <p className="mt-1 text-xs text-muted">Pago em {formatarDataCalendario(p.dataPagamento.slice(0, 10))}{p.formaPagamento ? ` · ${p.formaPagamento}` : ""}</p>}
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                    <ListaAnexos anexos={p.anexos} onExcluido={carregar} />
+                    <BotaoAnexar contaPagarId={p.contaId} tipo="RECIBO_ASSINADO" rotulo="Anexar recibo assinado" onEnviado={carregar} />
+                    <button type="button" onClick={() => baixarRecibo(p.sabado)} disabled={baixando === p.sabado} className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs font-semibold text-ink hover:bg-background disabled:opacity-50">
+                      🧾 {baixando === p.sabado ? "Gerando..." : "Recibo para assinar (PDF)"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </Modal>
   );
 }
