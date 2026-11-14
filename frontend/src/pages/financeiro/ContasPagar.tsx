@@ -14,6 +14,8 @@ interface ContaPagar {
   funcionarioId?: string | null;
   codigoBarras?: string | null;
   funcionario?: { id: string; nome: string; chavePix: string | null; registrado: boolean } | null;
+  salarioBruto?: string | number | null;
+  descontos?: { id: string; tipo: string; data: string; valor: string | number; descricao: string | null }[];
   fornecedor: string;
   descricao: string;
   categoria: string;
@@ -127,7 +129,36 @@ function Info({ label, valor }: { label: string; valor: string }) { return <div>
 
 function CartaoConta({ conta, onPagar, onAlterar, onExcluir }: { conta: ContaPagar; onPagar: () => void; onAlterar: () => void; onExcluir: () => void }) {
   const paga = conta.status === "PAGO"; const cancelada = conta.status === "CANCELADO"; const saldo = conta.saldo ?? Number(conta.valor) - Number(conta.valorPago || 0);
-  return <Card className={cancelada ? "opacity-60" : ""}><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex flex-wrap items-center gap-2"><p className="font-display text-xl uppercase text-ink">{conta.fornecedor}</p><StatusBadge status={conta.status} />{conta.funcionarioId && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">👷 Salário de sábado</span>}</div><p className="text-sm text-ink mt-1">{conta.descricao}</p><p className="text-xs text-muted mt-1">{conta.categoria}{conta.funcionario?.chavePix && ` · Pix: ${conta.funcionario.chavePix}`}</p>{conta.codigoBarras && <p className="mt-1 break-all font-mono text-[11px] text-muted" title="Código de barras do boleto">▮▯▮ {conta.codigoBarras}</p>}</div><div className="sm:text-right"><p className="text-xs text-muted">Valor da conta</p><p className="font-display text-2xl text-ink">{formatarMoeda(conta.valor)}</p></div></div><div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-4 text-sm md:grid-cols-4"><Info label="Lançamento" valor={formatarDataCalendario(conta.dataLancamento)} /><Info label="Vencimento" valor={formatarDataCalendario(conta.vencimento)} /><Info label="Pago" valor={formatarMoeda(conta.valorPago || 0)} /><Info label="Saldo" valor={formatarMoeda(saldo)} /></div>{(conta.dataPagamento || conta.formaPagamento || conta.observacoes) && <div className="mt-3 rounded-lg bg-background px-3 py-2 text-xs text-muted">{conta.dataPagamento && `Último pagamento: ${formatarData(conta.dataPagamento)}`}{conta.formaPagamento && ` · ${conta.formaPagamento}`}{conta.observacoes && <span className="block mt-1">Obs.: {conta.observacoes}</span>}</div>}<div className="mt-4 flex flex-wrap gap-2">{!paga && !cancelada && <Button className="w-full sm:w-auto" onClick={onPagar}>{Number(conta.valorPago || 0) > 0 ? "Registrar pagamento restante" : "Registrar pagamento"}</Button>}<Button variante="secundaria" className="flex-1 sm:flex-none" onClick={onAlterar}><IconeLapis tamanho={16} />Alterar</Button><Button variante="secundaria" className="flex-1 !text-danger hover:!bg-danger/5 sm:flex-none" onClick={onExcluir}><IconeLixeira tamanho={16} />Excluir</Button></div></Card>;
+  return <Card className={cancelada ? "opacity-60" : ""}><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex flex-wrap items-center gap-2"><p className="font-display text-xl uppercase text-ink">{conta.fornecedor}</p><StatusBadge status={conta.status} />{conta.funcionarioId && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">👷 Salário de sábado</span>}</div><p className="text-sm text-ink mt-1">{conta.descricao}</p>{conta.funcionarioId && <DetalheSalario conta={conta} />}<p className="text-xs text-muted mt-1">{conta.categoria}{conta.funcionario?.chavePix && ` · Pix: ${conta.funcionario.chavePix}`}</p>{conta.codigoBarras && <p className="mt-1 break-all font-mono text-[11px] text-muted" title="Código de barras do boleto">▮▯▮ {conta.codigoBarras}</p>}</div><div className="sm:text-right"><p className="text-xs text-muted">Valor da conta</p><p className="font-display text-2xl text-ink">{formatarMoeda(conta.valor)}</p></div></div><div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-4 text-sm md:grid-cols-4"><Info label="Lançamento" valor={formatarDataCalendario(conta.dataLancamento)} /><Info label="Vencimento" valor={formatarDataCalendario(conta.vencimento)} /><Info label="Pago" valor={formatarMoeda(conta.valorPago || 0)} /><Info label="Saldo" valor={formatarMoeda(saldo)} /></div>{(conta.dataPagamento || conta.formaPagamento || conta.observacoes) && <div className="mt-3 rounded-lg bg-background px-3 py-2 text-xs text-muted">{conta.dataPagamento && `Último pagamento: ${formatarData(conta.dataPagamento)}`}{conta.formaPagamento && ` · ${conta.formaPagamento}`}{conta.observacoes && <span className="block mt-1">Obs.: {conta.observacoes}</span>}</div>}<div className="mt-4 flex flex-wrap gap-2">{!paga && !cancelada && <Button className="w-full sm:w-auto" onClick={onPagar}>{Number(conta.valorPago || 0) > 0 ? "Registrar pagamento restante" : "Registrar pagamento"}</Button>}<Button variante="secundaria" className="flex-1 sm:flex-none" onClick={onAlterar}><IconeLapis tamanho={16} />Alterar</Button><Button variante="secundaria" className="flex-1 !text-danger hover:!bg-danger/5 sm:flex-none" onClick={onExcluir}><IconeLixeira tamanho={16} />Excluir</Button></div></Card>;
+}
+
+const ROTULO_DESCONTO: Record<string, string> = { ADIANTAMENTO: "💵 Adiantamento", VALE: "🎟️ Vale", CARNE: "🥩 Carne / produtos", OUTRO: "📝 Outro desconto" };
+
+/** Salário de sábado: mostra o salário cheio e por que teve desconto. */
+function DetalheSalario({ conta }: { conta: ContaPagar }) {
+  const descontos = conta.descontos ?? [];
+  if (descontos.length === 0) return null;
+  const bruto = Number(conta.salarioBruto ?? conta.valor);
+  const total = descontos.reduce((t, d) => t + Number(d.valor), 0);
+  return (
+    <details className="mt-2 max-w-md rounded-lg border border-danger/20 bg-danger/[0.04] px-3 py-2 text-sm">
+      <summary className="cursor-pointer font-semibold text-danger">Por que tem desconto? ({descontos.length} · − {formatarMoeda(total)})</summary>
+      <ul className="mt-2 divide-y divide-border">
+        <li className="flex justify-between gap-3 py-1.5"><span className="text-ink">Salário cheio</span><strong className="whitespace-nowrap text-ink">{formatarMoeda(bruto)}</strong></li>
+        {descontos.map((d) => (
+          <li key={d.id} className="flex justify-between gap-3 py-1.5">
+            <span className="min-w-0 text-ink">
+              {ROTULO_DESCONTO[d.tipo] ?? d.tipo}
+              <span className="block text-xs text-muted">Pegou em {formatarDataCalendario(d.data)}{d.descricao ? ` · ${d.descricao}` : ""}</span>
+            </span>
+            <strong className="whitespace-nowrap text-danger">− {formatarMoeda(Number(d.valor))}</strong>
+          </li>
+        ))}
+        <li className="flex justify-between gap-3 py-1.5"><span className="font-semibold text-ink">A pagar no sábado</span><strong className="whitespace-nowrap text-ink">{formatarMoeda(Number(conta.valor))}</strong></li>
+      </ul>
+      <p className="mt-1 text-xs text-muted">Os descontos são lançados na aba Funcionários.</p>
+    </details>
+  );
 }
 
 function FormularioContaPagar({ onCancelar, onCriado }: { onCancelar: () => void; onCriado: () => void }) {

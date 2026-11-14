@@ -9,6 +9,7 @@ import {
   excluirFuncionario,
   listarFuncionarios,
 } from "./funcionarios.service";
+import { excluirDesconto, folhaDoSabado, lancarDesconto, listarDescontos } from "./descontos.service";
 
 export const funcionariosRouter = Router();
 funcionariosRouter.use(autenticar, somentePapel("ADMINISTRATIVO"));
@@ -79,5 +80,59 @@ funcionariosRouter.delete("/:id", async (req, res) => {
     if (erro instanceof ErroFuncionario) return res.status(404).json({ erro: erro.message });
     console.error(erro);
     return res.status(500).json({ erro: "Erro interno ao salvar o funcionário." });
+  }
+});
+
+// ───────────── Descontos (adiantamento, vale, carne...) e folha de pagamento ─────────────
+
+const descontoSchema = z.object({
+  tipo: z.enum(["ADIANTAMENTO", "VALE", "CARNE", "OUTRO"]),
+  data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Informe o dia em que pegou.").transform((v) => new Date(`${v}T00:00:00Z`)),
+  valor: z.number().positive("Informe o valor do desconto.").max(100000),
+  descricao: z.string().max(300).nullable().optional().transform((v) => (v && v.trim() ? v.trim() : null)),
+});
+
+function tratarErro(res: import("express").Response, erro: unknown, mensagem: string) {
+  if (erro instanceof ErroFuncionario) return res.status(400).json({ erro: erro.message });
+  console.error(erro);
+  return res.status(500).json({ erro: mensagem });
+}
+
+// GET /funcionarios/folha?sabado=2026-11-21[&funcionarioId=...]
+funcionariosRouter.get("/folha", async (req, res) => {
+  const sabado = String(req.query.sabado ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(sabado)) return res.status(400).json({ erro: "Informe o sábado." });
+  try {
+    const funcionarioId = typeof req.query.funcionarioId === "string" && req.query.funcionarioId ? req.query.funcionarioId : undefined;
+    return res.json(await folhaDoSabado(new Date(`${sabado}T00:00:00Z`), funcionarioId));
+  } catch (erro) {
+    return tratarErro(res, erro, "Erro interno ao montar a folha de pagamento.");
+  }
+});
+
+funcionariosRouter.get("/:id/descontos", async (req, res) => {
+  try {
+    return res.json(await listarDescontos(req.params.id));
+  } catch (erro) {
+    return tratarErro(res, erro, "Erro interno ao listar os descontos.");
+  }
+});
+
+funcionariosRouter.post("/:id/descontos", async (req, res) => {
+  const validacao = descontoSchema.safeParse(req.body);
+  if (!validacao.success) return res.status(400).json({ erro: validacao.error.issues[0].message });
+  try {
+    return res.status(201).json(await lancarDesconto(req.params.id, validacao.data, req.usuario!.id));
+  } catch (erro) {
+    return tratarErro(res, erro, "Erro interno ao lançar o desconto.");
+  }
+});
+
+funcionariosRouter.delete("/descontos/:descontoId", async (req, res) => {
+  try {
+    await excluirDesconto(req.params.descontoId, req.usuario!.id);
+    return res.status(204).end();
+  } catch (erro) {
+    return tratarErro(res, erro, "Erro interno ao excluir o desconto.");
   }
 });

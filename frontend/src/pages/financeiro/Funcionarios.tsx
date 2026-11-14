@@ -5,7 +5,8 @@ import { dataLocalISO, formatarDataCalendario, formatarMoeda } from "../../lib/f
 import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { Button } from "../../components/ui/Button";
-import { IconeLapis, IconeLixeira, IconeMais } from "../../components/ui/Icones";
+import { IconeDownload, IconeLapis, IconeLixeira, IconeMais } from "../../components/ui/Icones";
+import type { FolhaFuncionario } from "./folhaPdf";
 import { normalizar } from "../../components/fornecedores/fornecedores";
 
 interface Funcionario {
@@ -56,6 +57,8 @@ export function Funcionarios() {
   const [edicao, setEdicao] = useState<{ funcionario?: Funcionario } | null>(null);
   const [exclusao, setExclusao] = useState<Funcionario | null>(null);
   const [aviso, setAviso] = useState("");
+  const [descontosDe, setDescontosDe] = useState<Funcionario | null>(null);
+  const [folha, setFolha] = useState<{ funcionario?: Funcionario } | null>(null);
 
   async function carregar() {
     setCarregando(true);
@@ -91,10 +94,15 @@ export function Funcionarios() {
           Os salários são pagos <strong className="text-ink">todo sábado</strong>. Cada sábado entra sozinho em{" "}
           <Link to="/financeiro/contas-a-pagar" className="font-semibold text-primary underline-offset-2 hover:underline">Contas a Pagar</Link>, onde você confirma se foi pago.
         </p>
-        <Button tamanho="grande" className="shrink-0 whitespace-nowrap" onClick={() => setEdicao({})}>
-          <IconeMais tamanho={20} />
-          Novo funcionário
-        </Button>
+        <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+          <Button variante="secundaria" tamanho="grande" className="whitespace-nowrap" onClick={() => setFolha({})}>
+            🧾 Folha da semana
+          </Button>
+          <Button tamanho="grande" className="whitespace-nowrap" onClick={() => setEdicao({})}>
+            <IconeMais tamanho={20} />
+            Novo funcionário
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -166,7 +174,13 @@ export function Funcionarios() {
                 {f.dataAdmissao && <div className="flex gap-2"><dt className="w-24 shrink-0 text-muted">Admissão</dt><dd className="text-ink">{formatarDataCalendario(f.dataAdmissao)}</dd></div>}
               </dl>
 
-              <div className="mt-auto flex gap-2 pt-4">
+              {!inativo && (
+                <div className="mt-auto grid grid-cols-2 gap-2 pt-4">
+                  <Button variante="secundaria" onClick={() => setDescontosDe(f)}>💸 Descontos</Button>
+                  <Button variante="secundaria" onClick={() => setFolha({ funcionario: f })}>🧾 Folha / recibo</Button>
+                </div>
+              )}
+              <div className={`flex gap-2 ${inativo ? "mt-auto pt-4" : "pt-2"}`}>
                 <Button variante="secundaria" className="flex-1" onClick={() => setEdicao({ funcionario: f })}><IconeLapis tamanho={16} />Alterar</Button>
                 {!inativo && <Button variante="secundaria" className="flex-1 !text-danger hover:!bg-danger/5" aria-label={`Excluir ${f.nome}`} onClick={() => setExclusao(f)}><IconeLixeira tamanho={16} />Excluir</Button>}
               </div>
@@ -182,6 +196,8 @@ export function Funcionarios() {
           onSalvo={(nome) => { setEdicao(null); setAviso(`${nome} salvo. Os sábados já estão em Contas a Pagar.`); carregar(); }}
         />
       )}
+      {descontosDe && <ModalDescontos funcionario={descontosDe} onFechar={() => setDescontosDe(null)} onMudou={carregar} />}
+      {folha && <ModalFolha funcionario={folha.funcionario} onFechar={() => setFolha(null)} />}
       {exclusao && (
         <ModalExcluir
           funcionario={exclusao}
@@ -348,6 +364,315 @@ function ModalExcluir({ funcionario, onFechar, onExcluido }: { funcionario: Func
       <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button variante="secundaria" onClick={onFechar}>Não, manter</Button>
         <Button variante="perigo" disabled={excluindo} onClick={excluir}><IconeLixeira tamanho={16} />{excluindo ? "Excluindo..." : "Sim, excluir"}</Button>
+      </div>
+    </Modal>
+  );
+}
+
+// ───────────── Descontos (adiantamento, vale, carne...) ─────────────
+
+interface Desconto {
+  id: string;
+  grupoId: string;
+  tipo: "ADIANTAMENTO" | "VALE" | "CARNE" | "OUTRO";
+  rotulo: string;
+  data: string;
+  valor: number;
+  descricao: string | null;
+  sabado: string | null;
+  sabadoPago: boolean;
+}
+
+const TIPOS_DESCONTO: { id: Desconto["tipo"]; rotulo: string; icone: string; exemplo: string }[] = [
+  { id: "ADIANTAMENTO", rotulo: "Adiantamento", icone: "💵", exemplo: "Ex.: adiantamento em dinheiro" },
+  { id: "VALE", rotulo: "Vale", icone: "🎟️", exemplo: "Ex.: vale para o mercado" },
+  { id: "CARNE", rotulo: "Carne / produtos", icone: "🥩", exemplo: "Ex.: 2 kg de picanha" },
+  { id: "OUTRO", rotulo: "Outro", icone: "📝", exemplo: "Ex.: quebra de material" },
+];
+
+/** Sábado em que o desconto vai entrar: o primeiro a partir do dia em que pegou, mas nunca um que já passou. */
+function sabadoDoDesconto(dia: string) {
+  const d = new Date(`${dia}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + ((6 - d.getUTCDay() + 7) % 7));
+  const doDia = d.toISOString().slice(0, 10);
+  const deHoje = proximoSabado();
+  return doDia > deHoje ? doDia : deHoje;
+}
+
+const sabadoCurto = (iso: string) => `sáb ${formatarDataCalendario(iso).slice(0, 5)}`;
+
+function ModalDescontos({ funcionario, onFechar, onMudou }: { funcionario: Funcionario; onFechar: () => void; onMudou: () => void }) {
+  const [descontos, setDescontos] = useState<Desconto[]>([]);
+  const [carregando, setCarregando] = useState(true);
+  const [tipo, setTipo] = useState<Desconto["tipo"]>("VALE");
+  const [data, setData] = useState(dataLocalISO());
+  const [valor, setValor] = useState("");
+  const [descricao, setDescricao] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+  const [aviso, setAviso] = useState("");
+  const [excluindo, setExcluindo] = useState<string | null>(null);
+
+  async function carregar() {
+    try {
+      setDescontos(await api<Desconto[]>(`/funcionarios/${funcionario.id}/descontos`));
+    } catch (e) {
+      setErro(e instanceof ErroApi ? e.message : "Não foi possível carregar os descontos.");
+    } finally {
+      setCarregando(false);
+    }
+  }
+  useEffect(() => {
+    carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [funcionario.id]);
+
+  const valorNumero = Number(valor.replace(/\./g, "").replace(",", ".")) || 0;
+  const sabadoAlvo = data ? sabadoDoDesconto(data) : "";
+  const passaDoSalario = valorNumero > funcionario.salario;
+
+  async function salvar(e: FormEvent) {
+    e.preventDefault();
+    setErro("");
+    setAviso("");
+    if (valorNumero <= 0) return setErro("Informe o valor.");
+    setSalvando(true);
+    try {
+      const r = await api<{ partes: { sabado: string; valor: number }[] }>(`/funcionarios/${funcionario.id}/descontos`, {
+        method: "POST",
+        body: { tipo, data, valor: valorNumero, descricao: descricao.trim() || null },
+      });
+      setAviso(`Lançado! ${r.partes.map((p) => `${formatarMoeda(p.valor)} no ${sabadoCurto(p.sabado)}`).join(" e ")}. Já aparece em Contas a Pagar.`);
+      setValor("");
+      setDescricao("");
+      await carregar();
+      onMudou();
+    } catch (e) {
+      setErro(e instanceof ErroApi ? e.message : "Não foi possível lançar o desconto.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function excluir(d: Desconto) {
+    setErro("");
+    setAviso("");
+    setExcluindo(d.id);
+    try {
+      await api(`/funcionarios/descontos/${d.id}`, { method: "DELETE" });
+      setAviso("Desconto excluído. O salário do sábado voltou ao valor certo.");
+      await carregar();
+      onMudou();
+    } catch (e) {
+      setErro(e instanceof ErroApi ? e.message : "Não foi possível excluir.");
+    } finally {
+      setExcluindo(null);
+    }
+  }
+
+  // Agrupa as partes do mesmo desconto (quando passou do salário e foi para o sábado seguinte)
+  const grupos = useMemo(() => {
+    const mapa = new Map<string, Desconto[]>();
+    for (const d of descontos) mapa.set(d.grupoId, [...(mapa.get(d.grupoId) ?? []), d]);
+    return Array.from(mapa.values());
+  }, [descontos]);
+  const pendentes = descontos.filter((d) => !d.sabadoPago).reduce((t, d) => t + d.valor, 0);
+
+  return (
+    <Modal titulo={`Descontos — ${funcionario.nome}`} onFechar={onFechar}>
+      <p className="mt-1 text-sm text-muted">Adiantamento, vale ou carne que ele pegou. O valor sai do <strong className="text-ink">próximo sábado ainda não pago</strong> e já aparece em Contas a Pagar.</p>
+
+      <form onSubmit={salvar} className="mt-4 flex flex-col gap-4 rounded-lg border-2 border-primary/15 bg-primary/[0.03] p-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {TIPOS_DESCONTO.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTipo(t.id)}
+              aria-pressed={tipo === t.id}
+              className={`min-h-12 rounded-lg border px-2 py-2 text-sm font-semibold transition ${tipo === t.id ? "border-primary bg-primary text-white" : "border-border bg-white text-ink hover:border-ink/40"}`}
+            >
+              <span className="mr-1" aria-hidden>{t.icone}</span>{t.rotulo}
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Dia em que pegou" type="date" value={data} max={dataLocalISO()} onChange={(e) => setData(e.target.value)} required />
+          <Input label="Valor (R$)" inputMode="decimal" placeholder="0,00" value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d,.]/g, ""))} required />
+        </div>
+        <Input label="Descrição (opcional)" placeholder={TIPOS_DESCONTO.find((t) => t.id === tipo)?.exemplo} value={descricao} maxLength={300} onChange={(e) => setDescricao(e.target.value)} />
+        {sabadoAlvo && (
+          <p className="rounded-lg bg-white px-3 py-2 text-sm text-ink">
+            📅 Será descontado no <strong>{sabadoCurto(sabadoAlvo)}</strong>
+            {valorNumero > 0 && <> · salário de {formatarMoeda(funcionario.salario)} → <strong>{formatarMoeda(Math.max(funcionario.salario - valorNumero, 0))}</strong></>}
+            {passaDoSalario && <span className="mt-1 block text-xs text-gold-texto">O valor passa do salário de um sábado: o restante será descontado no sábado seguinte.</span>}
+          </p>
+        )}
+        {erro && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
+        {aviso && <p role="status" className="rounded-lg bg-success/10 px-3 py-2 text-sm font-semibold text-success">{aviso}</p>}
+        <Button type="submit" tamanho="grande" disabled={salvando}><IconeMais tamanho={18} />{salvando ? "Lançando..." : "Lançar desconto"}</Button>
+      </form>
+
+      <div className="mt-5 flex items-baseline justify-between gap-3">
+        <p className="font-semibold text-ink">Descontos lançados</p>
+        {pendentes > 0 && <p className="text-sm text-muted">A descontar: <strong className="text-danger">{formatarMoeda(pendentes)}</strong></p>}
+      </div>
+      {carregando ? (
+        <p className="mt-2 text-sm text-muted">Carregando...</p>
+      ) : grupos.length === 0 ? (
+        <p className="mt-2 rounded-lg bg-background px-3 py-4 text-center text-sm text-muted">Nenhum desconto lançado.</p>
+      ) : (
+        <ul className="mt-2 divide-y divide-border rounded-lg border border-border">
+          {grupos.map((partes) => {
+            const d = partes[0];
+            const total = partes.reduce((t, p) => t + p.valor, 0);
+            const pago = partes.some((p) => p.sabadoPago);
+            const info = TIPOS_DESCONTO.find((t) => t.id === d.tipo);
+            return (
+              <li key={d.grupoId} className="flex items-start justify-between gap-3 px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-sm text-ink"><span aria-hidden>{info?.icone} </span><strong>{d.rotulo}</strong>{d.descricao && <span className="text-muted"> · {d.descricao}</span>}</p>
+                  <p className="text-xs text-muted">
+                    Pegou em {formatarDataCalendario(d.data)} · descontado no{" "}
+                    {partes.map((p) => (p.sabado ? `${sabadoCurto(p.sabado)}${partes.length > 1 ? ` (${formatarMoeda(p.valor)})` : ""}` : "sábado excluído")).join(" e ")}
+                    {pago && <span className="ml-1 font-semibold text-success">· já pago</span>}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <strong className="whitespace-nowrap text-danger">− {formatarMoeda(total)}</strong>
+                  {!pago && (
+                    <button
+                      type="button"
+                      onClick={() => excluir(d)}
+                      disabled={excluindo === d.id}
+                      aria-label={`Excluir ${d.rotulo} de ${formatarMoeda(total)}`}
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-danger hover:bg-danger/5 disabled:opacity-40"
+                    >
+                      <IconeLixeira tamanho={16} />
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Modal>
+  );
+}
+
+// ───────────── Folha de pagamento (recibo para assinar) ─────────────
+
+/** Sábados para escolher: 8 anteriores, o atual e os 4 próximos. */
+function sabadosParaEscolher() {
+  const base = new Date(`${proximoSabado()}T12:00:00Z`);
+  const lista: string[] = [];
+  for (let i = -8; i <= 4; i++) {
+    const d = new Date(base);
+    d.setUTCDate(d.getUTCDate() + i * 7);
+    lista.push(d.toISOString().slice(0, 10));
+  }
+  return lista;
+}
+
+function ModalFolha({ funcionario, onFechar }: { funcionario?: Funcionario; onFechar: () => void }) {
+  const sabados = useMemo(sabadosParaEscolher, []);
+  const [sabado, setSabado] = useState(proximoSabado());
+  const [folhas, setFolhas] = useState<FolhaFuncionario[] | null>(null);
+  const [carregando, setCarregando] = useState(false);
+  const [gerando, setGerando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  useEffect(() => {
+    let cancelado = false;
+    setCarregando(true);
+    setErro("");
+    api<FolhaFuncionario[]>(`/funcionarios/folha?sabado=${sabado}${funcionario ? `&funcionarioId=${funcionario.id}` : ""}`)
+      .then((r) => !cancelado && setFolhas(r))
+      .catch((e) => !cancelado && setErro(e instanceof ErroApi ? e.message : "Não foi possível montar a folha."))
+      .finally(() => !cancelado && setCarregando(false));
+    return () => {
+      cancelado = true;
+    };
+  }, [sabado, funcionario]);
+
+  async function baixar() {
+    if (!folhas?.length) return;
+    setGerando(true);
+    try {
+      const { gerarPdfFolha } = await import("./folhaPdf");
+      await gerarPdfFolha(folhas);
+    } catch (e) {
+      console.error(e);
+      setErro("Não foi possível gerar o PDF.");
+    } finally {
+      setGerando(false);
+    }
+  }
+
+  const totais = (folhas ?? []).reduce((t, f) => ({ bruto: t.bruto + f.salarioBruto, desc: t.desc + f.totalDescontos, liq: t.liq + f.liquido }), { bruto: 0, desc: 0, liq: 0 });
+
+  return (
+    <Modal titulo={funcionario ? `Folha de pagamento — ${funcionario.nome}` : "Folha de pagamento da semana"} onFechar={onFechar}>
+      <p className="mt-1 text-sm text-muted">Recibo com salário, descontos e valor líquido para o funcionário conferir e assinar. Sai em 2 vias (empresa e funcionário).</p>
+      <label className="mt-4 flex flex-col gap-1.5 text-sm font-medium text-ink">
+        Sábado do pagamento
+        <select value={sabado} onChange={(e) => setSabado(e.target.value)} className="h-11 rounded-lg border border-border bg-white px-3 text-sm focus:border-primary focus:outline-none">
+          {sabados.map((s) => (
+            <option key={s} value={s}>
+              {formatarDataCalendario(s)}{s === proximoSabado() ? " (este sábado)" : s < proximoSabado() ? " (já passou)" : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {erro && <p role="alert" className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
+      {carregando && <p className="mt-4 text-sm text-muted">Carregando...</p>}
+      {!carregando && folhas && folhas.length === 0 && <p className="mt-4 rounded-lg bg-background px-3 py-4 text-center text-sm text-muted">Nenhum salário lançado nesse sábado.</p>}
+      {!carregando && folhas && folhas.length > 0 && (
+        <div className="mt-4 overflow-x-auto rounded-lg border border-border">
+          <table className="w-full min-w-[460px] text-sm">
+            <thead>
+              <tr className="bg-background text-left text-xs uppercase tracking-wide text-muted">
+                <th className="px-3 py-2 font-medium">Funcionário</th>
+                <th className="px-3 py-2 text-right font-medium">Salário</th>
+                <th className="px-3 py-2 text-right font-medium">Descontos</th>
+                <th className="px-3 py-2 text-right font-medium">A receber</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {folhas.map((f) => (
+                <tr key={f.contaId}>
+                  <td className="px-3 py-2">
+                    <span className="font-semibold text-ink">{f.funcionario.nome}</span>
+                    {f.descontos.length > 0 && <span className="block text-xs text-muted">{f.descontos.map((d) => `${d.rotulo} ${formatarMoeda(d.valor)}`).join(" · ")}</span>}
+                    {f.status === "PAGO" && f.valorPago > 0 && <span className="block text-xs font-semibold text-success">Pago</span>}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right">{formatarMoeda(f.salarioBruto)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right text-danger">{f.totalDescontos > 0 ? `− ${formatarMoeda(f.totalDescontos)}` : "—"}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right font-bold text-ink">{formatarMoeda(f.liquido)}</td>
+                </tr>
+              ))}
+            </tbody>
+            {folhas.length > 1 && (
+              <tfoot>
+                <tr className="bg-background font-semibold">
+                  <td className="px-3 py-2">Total</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right">{formatarMoeda(totais.bruto)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right text-danger">− {formatarMoeda(totais.desc)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right">{formatarMoeda(totais.liq)}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+      <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <Button variante="secundaria" onClick={onFechar}>Fechar</Button>
+        <Button tamanho="grande" disabled={!folhas?.length || gerando || carregando} onClick={baixar}>
+          <IconeDownload tamanho={18} />
+          {gerando ? "Gerando PDF..." : folhas && folhas.length > 1 ? `Baixar PDF (${folhas.length} recibos)` : "Baixar PDF para assinar"}
+        </Button>
       </div>
     </Modal>
   );

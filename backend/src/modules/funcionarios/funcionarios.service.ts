@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database";
 import { registrarLog } from "../../shared/registrarLog";
 import { formatarDataCalendario, hojeCalendario } from "../../shared/datas";
@@ -14,6 +15,33 @@ export function sabadoAPartirDe(data: Date) {
   const d = new Date(Date.UTC(data.getUTCFullYear(), data.getUTCMonth(), data.getUTCDate()));
   const faltam = (6 - d.getUTCDay() + 7) % 7;
   return new Date(d.getTime() + faltam * DIA_MS);
+}
+
+const cent = (n: number) => Math.round(n * 100);
+const rs = (c: number) => c / 100;
+
+/** Recalcula o valor do sábado: salário cheio − descontos. Atualiza também a descrição. */
+export async function recalcularSalarioDoSabado(tx: Prisma.TransactionClient, contaPagarId: string) {
+  const conta = await tx.contaPagar.findUnique({
+    where: { id: contaPagarId },
+    include: { descontos: true, funcionario: { select: { salario: true } } },
+  });
+  if (!conta || !conta.funcionarioId) return;
+  const bruto = Number(conta.salarioBruto ?? conta.funcionario?.salario ?? conta.valor);
+  const totalDescontos = conta.descontos.reduce((t, d) => t + cent(Number(d.valor)), 0);
+  const liquido = rs(Math.max(cent(bruto) - totalDescontos, 0));
+  await tx.contaPagar.update({
+    where: { id: contaPagarId },
+    data: {
+      salarioBruto: bruto,
+      valor: liquido,
+      descricao: totalDescontos > 0
+        ? `Salário do sábado ${formatarDataCalendario(conta.vencimento).slice(0, 5)} — salário R$ ${bruto.toFixed(2).replace(".", ",")} − descontos R$ ${rs(totalDescontos).toFixed(2).replace(".", ",")}`
+        : `Salário do sábado ${formatarDataCalendario(conta.vencimento).slice(0, 5)}`,
+      // Se o desconto zerou o salário, não há nada a pagar
+      ...(liquido === 0 ? { status: "PAGO" as const, observacoes: "Salário todo descontado (adiantamentos/vales)." } : {}),
+    },
+  });
 }
 
 function descricaoSalario(sabado: Date) {
@@ -49,6 +77,7 @@ export async function gerarSalariosDeSabado() {
           descricao: descricaoSalario(s),
           categoria: "Funcionários",
           valor: f.salario,
+          salarioBruto: f.salario,
           dataLancamento: hoje,
           vencimento: s,
           status: "PENDENTE" as const,
@@ -166,7 +195,10 @@ export async function alterarFuncionario(
       mudancas.push(`desativado (${count} sábado(s) futuro(s) retirado(s) de contas a pagar)`);
     }
     if (Number(atual.salario) !== dados.salario) {
-      await tx.contaPagar.updateMany({ where: contasFuturasEmAberto(id), data: { valor: dados.salario } });
+      // Sábados futuros em aberto: novo salário cheio, mantendo os descontos já lançados
+      const futuras = await tx.contaPagar.findMany({ where: contasFuturasEmAberto(id), select: { id: true } });
+      await tx.contaPagar.updateMany({ where: { id: { in: futuras.map((c) => c.id) } }, data: { salarioBruto: dados.salario, valor: dados.salario } });
+      for (const c of futuras) await recalcularSalarioDoSabado(tx, c.id);
       mudancas.push(`salário R$ ${Number(atual.salario).toFixed(2)} → R$ ${dados.salario.toFixed(2)} (vale dos próximos sábados em aberto)`);
     }
     if (atual.nome !== dados.nome) {

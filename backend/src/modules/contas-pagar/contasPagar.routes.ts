@@ -193,7 +193,7 @@ contasPagarRouter.delete("/:id", async (req, res) => {
     await excluirContaPagar(req.params.id, req.usuario!.id);
     return res.status(204).end();
   } catch (erro) {
-    if (erro instanceof ErroContaPagar) return res.status(404).json({ erro: erro.message });
+    if (erro instanceof ErroContaPagar) return res.status(400).json({ erro: erro.message });
     console.error(erro);
     return res.status(500).json({ erro: "Erro interno ao excluir a conta." });
   }

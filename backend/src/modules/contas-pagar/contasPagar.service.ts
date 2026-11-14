@@ -29,7 +29,10 @@ export async function listarContasPagar(filtros: FiltrosContaPagar) {
   const contas = await prisma.contaPagar.findMany({
     where: { status: statusDoBanco, categoria: filtros.categoria },
     orderBy: { vencimento: "asc" },
-    include: { funcionario: { select: { id: true, nome: true, chavePix: true, registrado: true } } },
+    include: {
+      funcionario: { select: { id: true, nome: true, chavePix: true, registrado: true } },
+      descontos: { orderBy: [{ data: "asc" }, { criadoEm: "asc" }], select: { id: true, tipo: true, data: true, valor: true, descricao: true } },
+    },
   });
 
   // Marca como vencida (na leitura) qualquer conta pendente/parcial cujo vencimento já passou
@@ -213,6 +216,10 @@ export async function alterarContaPagar(id: string, dados: AlterarContaPagarInpu
 export async function excluirContaPagar(id: string, usuarioId: string) {
   const conta = await prisma.contaPagar.findUnique({ where: { id } });
   if (!conta) throw new ErroContaPagar("Conta não encontrada.");
+  const descontos = await prisma.descontoFuncionario.count({ where: { contaPagarId: id } });
+  if (descontos > 0) {
+    throw new ErroContaPagar("Este salário tem descontos lançados (vale/adiantamento/carne). Exclua os descontos na aba Funcionários antes de excluir o sábado.");
+  }
 
   await prisma.contaPagar.delete({ where: { id } });
 

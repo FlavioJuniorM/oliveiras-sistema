@@ -299,6 +299,9 @@ model ContaPagar {
   // Salário de sábado gerado a partir do cadastro de funcionários
   funcionarioId  String?      @map("funcionario_id")
   funcionario    Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)
+  // Salário cheio do sábado (antes dos descontos). valor = salarioBruto − descontos
+  salarioBruto   Decimal?     @map("salario_bruto") @db.Decimal(12, 2)
+  descontos      DescontoFuncionario[]
 
   @@unique([funcionarioId, vencimento])
   @@map("contas_pagar")
@@ -324,6 +327,7 @@ model Funcionario {
   geradoAte        DateTime?      @map("gerado_ate") @db.Date // último sábado já lançado em contas a pagar
   criadoEm         DateTime       @default(now()) @map("criado_em")
   contas           ContaPagar[]
+  descontos        DescontoFuncionario[]
 
   @@map("funcionarios")
 }
@@ -409,4 +413,32 @@ model Fornecedor {
   criadoEm        DateTime       @default(now()) @map("criado_em")
 
   @@map("fornecedores")
+}
+
+enum TipoDescontoFuncionario {
+  ADIANTAMENTO
+  VALE
+  CARNE
+  OUTRO
+}
+
+/// Adiantamento, vale, carne ou outro desconto do funcionário. É descontado do
+/// salário do próximo sábado ainda não pago (se passar do salário, continua no sábado seguinte).
+model DescontoFuncionario {
+  id            String                  @id @default(uuid())
+  funcionarioId String                  @map("funcionario_id")
+  funcionario   Funcionario             @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+  contaPagarId  String?                 @map("conta_pagar_id")
+  contaPagar    ContaPagar?             @relation(fields: [contaPagarId], references: [id], onDelete: SetNull)
+  grupoId       String                  @map("grupo_id") // partes do mesmo desconto dividido em vários sábados
+  tipo          TipoDescontoFuncionario
+  data          DateTime                @db.Date // dia em que o funcionário pegou
+  valor         Decimal                 @db.Decimal(12, 2)
+  descricao     String?
+  criadoPorId   String?                 @map("criado_por_id")
+  criadoEm      DateTime                @default(now()) @map("criado_em")
+
+  @@index([funcionarioId, data])
+  @@index([contaPagarId])
+  @@map("descontos_funcionarios")
 }
