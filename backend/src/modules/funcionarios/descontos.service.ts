@@ -204,8 +204,11 @@ export async function historicoDoFuncionario(funcionarioId: string) {
   await gerarSalariosDeSabado();
   const funcionario = await prisma.funcionario.findUnique({ where: { id: funcionarioId } });
   if (!funcionario) throw new ErroFuncionario("Funcionário não encontrado.");
+  // Só semanas que já passaram e a semana atual: a semana vira no domingo
+  // (o sábado é o dia do pagamento; no domingo já conta a semana seguinte)
+  const sabadoAtual = sabadoAPartirDe(hojeCalendario());
   const contas = await prisma.contaPagar.findMany({
-    where: { funcionarioId, status: { not: "CANCELADO" } },
+    where: { funcionarioId, status: { not: "CANCELADO" }, vencimento: { lte: sabadoAtual } },
     orderBy: { vencimento: "desc" },
     include: {
       descontos: { orderBy: [{ data: "asc" }, { criadoEm: "asc" }] },
@@ -213,14 +216,6 @@ export async function historicoDoFuncionario(funcionarioId: string) {
     },
   });
   const hoje = hojeCalendario();
-  // Do sábado desta semana para trás primeiro (mais recente no topo); sábados futuros depois
-  const limite = sabadoAPartirDe(hoje).getTime();
-  contas.sort((a, b) => {
-    const fa = a.vencimento.getTime() > limite;
-    const fb = b.vencimento.getTime() > limite;
-    if (fa !== fb) return fa ? 1 : -1;
-    return fa ? a.vencimento.getTime() - b.vencimento.getTime() : b.vencimento.getTime() - a.vencimento.getTime();
-  });
   const pagamentos = contas.map((c) => {
     const pago = c.status === "PAGO";
     return {

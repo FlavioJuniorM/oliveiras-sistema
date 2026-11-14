@@ -569,16 +569,16 @@ function ModalDescontos({ funcionario, onFechar, onMudou }: { funcionario: Funci
 
 // ───────────── Folha de pagamento (recibo para assinar) ─────────────
 
-/** Sábados para escolher: 8 anteriores, o atual e os 4 próximos. */
+/** Sábados para escolher: o desta semana e os 12 anteriores (a semana vira no domingo). */
 function sabadosParaEscolher() {
   const base = new Date(`${proximoSabado()}T12:00:00Z`);
   const lista: string[] = [];
-  for (let i = -8; i <= 4; i++) {
+  for (let i = -12; i <= 0; i++) {
     const d = new Date(base);
     d.setUTCDate(d.getUTCDate() + i * 7);
     lista.push(d.toISOString().slice(0, 10));
   }
-  return lista;
+  return lista.reverse();
 }
 
 function ModalFolha({ funcionario, onFechar }: { funcionario?: Funcionario; onFechar: () => void }) {
@@ -739,9 +739,32 @@ function ModalHistorico({ funcionario, onFechar, onFolha }: { funcionario: Funci
   }
 
   const temRecibo = (p: PagamentoHistorico) => p.anexos.some((a) => a.tipo === "RECIBO_ASSINADO");
+  const [mesesAbertos, setMesesAbertos] = useState<Set<string>>(new Set([dataLocalISO().slice(0, 7)]));
+  const alternarMes = (chave: string) =>
+    setMesesAbertos((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(chave)) novo.delete(chave);
+      else novo.add(chave);
+      return novo;
+    });
   const lista = (dados?.pagamentos ?? []).filter((p) =>
     filtro === "pagos" ? p.status === "PAGO" : filtro === "abertos" ? p.status !== "PAGO" : filtro === "semRecibo" ? p.status === "PAGO" && !temRecibo(p) : true
   );
+  // Mês a mês (pelo sábado do pagamento), do mais recente para o mais antigo
+  const meses = useMemo(() => {
+    const NOMES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+    const mapa = new Map<string, { chave: string; rotulo: string; semanas: PagamentoHistorico[]; pago: number; aPagar: number; descontos: number }>();
+    for (const p of lista) {
+      const chave = p.sabado.slice(0, 7);
+      const m = mapa.get(chave) ?? { chave, rotulo: `${NOMES[Number(chave.slice(5, 7)) - 1]} ${chave.slice(0, 4)}`, semanas: [], pago: 0, aPagar: 0, descontos: 0 };
+      m.semanas.push(p);
+      if (p.status === "PAGO") m.pago += p.valorPago;
+      else m.aPagar += p.liquido - p.valorPago;
+      m.descontos += p.totalDescontos;
+      mapa.set(chave, m);
+    }
+    return Array.from(mapa.values()).sort((a, b) => b.chave.localeCompare(a.chave));
+  }, [lista]);
   const STATUS: Record<string, [string, string]> = {
     PAGO: ["Pago", "bg-success/10 text-success"],
     VENCIDO: ["Não confirmado", "bg-danger/10 text-danger"],
@@ -783,8 +806,25 @@ function ModalHistorico({ funcionario, onFechar, onFolha }: { funcionario: Funci
       {!dados && !erro && <p className="mt-4 text-sm text-muted">Carregando...</p>}
       {dados && lista.length === 0 && <p className="mt-4 rounded-lg bg-background px-3 py-6 text-center text-sm text-muted">Nada aqui.</p>}
 
-      <ul className="mt-3 flex flex-col gap-2">
-        {lista.map((p) => {
+      {meses.map((m) => {
+        const mesAberto = mesesAbertos.has(m.chave);
+        return (
+          <section key={m.chave} className="mt-3 overflow-hidden rounded-lg border border-border">
+            <button type="button" onClick={() => alternarMes(m.chave)} aria-expanded={mesAberto} className="flex w-full items-center gap-3 bg-background px-3 py-3 text-left hover:bg-black/[0.03]">
+              <span className="min-w-0 flex-1">
+                <span className="block font-display text-lg uppercase text-ink">{m.rotulo}</span>
+                <span className="block text-xs text-muted">
+                  {m.semanas.length} semana(s)
+                  {m.pago > 0 && <> · <span className="font-semibold text-success">recebeu {formatarMoeda(m.pago)}</span></>}
+                  {m.aPagar > 0 && <> · <span className="font-semibold text-primary">a pagar {formatarMoeda(m.aPagar)}</span></>}
+                  {m.descontos > 0 && <> · <span className="text-danger">descontos {formatarMoeda(m.descontos)}</span></>}
+                </span>
+              </span>
+              <span className={`shrink-0 text-muted transition-transform ${mesAberto ? "rotate-90" : ""}`} aria-hidden>›</span>
+            </button>
+            {mesAberto && (
+              <ul className="flex flex-col gap-2 p-2">
+                {m.semanas.map((p) => {
           const [rotuloStatus, corStatus] = STATUS[p.status] ?? [p.status, "bg-background text-muted"];
           const expandido = aberto === p.contaId;
           return (
@@ -829,7 +869,11 @@ function ModalHistorico({ funcionario, onFechar, onFolha }: { funcionario: Funci
             </li>
           );
         })}
-      </ul>
+              </ul>
+            )}
+          </section>
+        );
+      })}
     </Modal>
   );
 }
