@@ -19,13 +19,32 @@ const reais = (c: number) => c / 100;
 const dm = (d: Date) => formatarDataCalendario(d).slice(0, 5);
 
 /** Salário de sábado que ainda pode receber desconto: não pago e sem pagamento parcial. */
-const contaAberta = { status: "PENDENTE" as const, valorPago: 0 };
+const contaAberta = { status: { in: ["PENDENTE" as const, "VENCIDO" as const] }, valorPago: 0 };
+
+/**
+ * Sábados que ainda dá para mexer: o sábado passado e daqui para frente.
+ * (A semana vira no domingo; o sábado anterior continua editável para acertos.)
+ */
+export function primeiroSabadoEditavel() {
+  return new Date(sabadoAPartirDe(hojeCalendario()).getTime() - 7 * DIA_MS);
+}
+
+async function contaDaSemanaEditavel(contaId: string) {
+  const conta = await prisma.contaPagar.findUnique({ where: { id: contaId }, include: { funcionario: true } });
+  if (!conta || !conta.funcionarioId || !conta.funcionario) throw new ErroFuncionario("Pagamento não encontrado.");
+  if (conta.vencimento < primeiroSabadoEditavel()) {
+    throw new ErroFuncionario("Só dá para alterar a semana atual e a semana passada.");
+  }
+  return conta as typeof conta & { funcionario: NonNullable<typeof conta.funcionario> };
+}
 
 export interface NovoDesconto {
   tipo: TipoDesconto;
   data: Date;
   valor: number;
   descricao?: string | null;
+  /** Sábado escolhido para descontar (semana passada ou atual). Sem ele, o sistema escolhe. */
+  sabado?: Date | null;
 }
 
 /**
@@ -43,9 +62,16 @@ export async function lancarDesconto(funcionarioId: string, dados: NovoDesconto,
   await gerarSalariosDeSabado();
 
   // Sábado a partir do dia em que pegou, mas nunca um sábado que já passou
+  // Sábado da semana em que pegou, mas nunca antes do sábado passado (semanas mais antigas já fecharam).
+  // Se aquele sábado já foi pago, vai para o próximo em aberto.
   const inicioDesconto = sabadoAPartirDe(dados.data);
-  const inicioHoje = sabadoAPartirDe(hoje);
-  const primeiroSabado = inicioDesconto > inicioHoje ? inicioDesconto : inicioHoje;
+  const limite = primeiroSabadoEditavel();
+  let primeiroSabado = inicioDesconto > limite ? inicioDesconto : limite;
+  if (dados.sabado) {
+    if (dados.sabado.getUTCDay() !== 6) throw new ErroFuncionario("Escolha um sábado.");
+    if (dados.sabado < limite) throw new ErroFuncionario("Só dá para descontar na semana passada ou nas próximas.");
+    primeiroSabado = dados.sabado;
+  }
 
   const grupoId = randomUUID();
   const partes: { sabado: Date; valor: number }[] = [];
@@ -216,6 +242,7 @@ export async function historicoDoFuncionario(funcionarioId: string) {
     },
   });
   const hoje = hojeCalendario();
+  const limiteEdicao = primeiroSabadoEditavel();
   const pagamentos = contas.map((c) => {
     const pago = c.status === "PAGO";
     return {
@@ -230,6 +257,7 @@ export async function historicoDoFuncionario(funcionarioId: string) {
       formaPagamento: c.formaPagamento,
       descontos: c.descontos.map((d) => ({ ...formatarDesconto(d), sabado: c.vencimento })),
       anexos: c.anexos,
+      editavel: c.vencimento >= limiteEdicao,
     };
   });
   const pagos = pagamentos.filter((p) => p.status === "PAGO");
@@ -243,4 +271,62 @@ export async function historicoDoFuncionario(funcionarioId: string) {
     },
     pagamentos,
   };
+}
+
+// ───────────── Acertos da semana (semana atual e a passada) ─────────────
+
+/** Muda o salário cheio daquela semana (ex.: trabalhou só alguns dias, ganhou extra). */
+export async function alterarSalarioDaSemana(contaId: string, salarioBruto: number, usuarioId: string) {
+  const conta = await contaDaSemanaEditavel(contaId);
+  if (conta.status === "PAGO" && Number(conta.valorPago) > 0) {
+    throw new ErroFuncionario("Esta semana já está paga. Desfaça o pagamento antes de alterar o valor.");
+  }
+  const anterior = Number(conta.salarioBruto ?? conta.valor);
+  await prisma.$transaction(async (tx) => {
+    await tx.contaPagar.update({ where: { id: contaId }, data: { salarioBruto, status: "PENDENTE", observacoes: null } });
+    await recalcularSalarioDoSabado(tx, contaId);
+  });
+  await registrarLog({
+    usuarioId,
+    acao: "ALTEROU_SALARIO_SEMANA",
+    entidade: "funcionario",
+    entidadeId: conta.funcionarioId!,
+    detalhes: `Salário de ${conta.funcionario.nome} no sábado ${formatarDataCalendario(conta.vencimento)}: R$ ${anterior.toFixed(2)} → R$ ${salarioBruto.toFixed(2)}`,
+  });
+}
+
+/** Marca que o funcionário recebeu o valor da semana. */
+export async function marcarSemanaComoPaga(contaId: string, formaPagamento: string, dataPagamento: Date, usuarioId: string) {
+  const conta = await contaDaSemanaEditavel(contaId);
+  const valor = Number(conta.valor);
+  await prisma.contaPagar.update({
+    where: { id: contaId },
+    data: { status: "PAGO", valorPago: valor, dataPagamento, formaPagamento },
+  });
+  await registrarLog({
+    usuarioId,
+    acao: "PAGOU_CONTA_PAGAR",
+    entidade: "conta_pagar",
+    entidadeId: contaId,
+    detalhes: `Salário de ${conta.funcionario.nome} do sábado ${formatarDataCalendario(conta.vencimento)} marcado como recebido: R$ ${valor.toFixed(2)} (${formaPagamento}) em ${formatarDataCalendario(dataPagamento)}`,
+  });
+}
+
+/** Desfaz o pagamento (ele ainda não recebeu). */
+export async function desfazerPagamentoDaSemana(contaId: string, usuarioId: string) {
+  const conta = await contaDaSemanaEditavel(contaId);
+  await prisma.$transaction(async (tx) => {
+    await tx.contaPagar.update({
+      where: { id: contaId },
+      data: { status: "PENDENTE", valorPago: 0, dataPagamento: null, formaPagamento: null, observacoes: null },
+    });
+    await recalcularSalarioDoSabado(tx, contaId);
+  });
+  await registrarLog({
+    usuarioId,
+    acao: "DESFEZ_PAGAMENTO_SALARIO",
+    entidade: "conta_pagar",
+    entidadeId: contaId,
+    detalhes: `Desfez o pagamento do salário de ${conta.funcionario.nome} do sábado ${formatarDataCalendario(conta.vencimento)} (tinha R$ ${Number(conta.valorPago).toFixed(2)})`,
+  });
 }

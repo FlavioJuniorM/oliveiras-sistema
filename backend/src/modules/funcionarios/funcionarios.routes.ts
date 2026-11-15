@@ -9,7 +9,16 @@ import {
   excluirFuncionario,
   listarFuncionarios,
 } from "./funcionarios.service";
-import { excluirDesconto, folhaDoSabado, historicoDoFuncionario, lancarDesconto, listarDescontos } from "./descontos.service";
+import {
+  alterarSalarioDaSemana,
+  desfazerPagamentoDaSemana,
+  excluirDesconto,
+  folhaDoSabado,
+  historicoDoFuncionario,
+  lancarDesconto,
+  listarDescontos,
+  marcarSemanaComoPaga,
+} from "./descontos.service";
 
 export const funcionariosRouter = Router();
 funcionariosRouter.use(autenticar, somentePapel("ADMINISTRATIVO"));
@@ -90,6 +99,7 @@ const descontoSchema = z.object({
   data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Informe o dia em que pegou.").transform((v) => new Date(`${v}T00:00:00Z`)),
   valor: z.number().positive("Informe o valor do desconto.").max(100000),
   descricao: z.string().max(300).nullable().optional().transform((v) => (v && v.trim() ? v.trim() : null)),
+  sabado: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional().transform((v) => (v ? new Date(`${v}T00:00:00Z`) : null)),
 });
 
 function tratarErro(res: import("express").Response, erro: unknown, mensagem: string) {
@@ -142,5 +152,44 @@ funcionariosRouter.get("/:id/historico", async (req, res) => {
     return res.json(await historicoDoFuncionario(req.params.id));
   } catch (erro) {
     return tratarErro(res, erro, "Erro interno ao carregar o histórico.");
+  }
+});
+
+// ───────────── Acertos da semana (semana atual e a passada) ─────────────
+
+funcionariosRouter.patch("/pagamentos/:contaId", async (req, res) => {
+  const v = z.object({ salarioBruto: z.number().min(0).max(1_000_000) }).safeParse(req.body);
+  if (!v.success) return res.status(400).json({ erro: "Informe o salário da semana." });
+  try {
+    await alterarSalarioDaSemana(req.params.contaId, v.data.salarioBruto, req.usuario!.id);
+    return res.json({ ok: true });
+  } catch (erro) {
+    return tratarErro(res, erro, "Erro interno ao alterar o salário da semana.");
+  }
+});
+
+funcionariosRouter.post("/pagamentos/:contaId/pagar", async (req, res) => {
+  const v = z
+    .object({
+      formaPagamento: z.string().min(1).max(40),
+      dataPagamento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    })
+    .safeParse(req.body);
+  if (!v.success) return res.status(400).json({ erro: "Informe a forma e o dia do pagamento." });
+  try {
+    // meio-dia de Brasília, para a data não “voltar” um dia
+    await marcarSemanaComoPaga(req.params.contaId, v.data.formaPagamento, new Date(`${v.data.dataPagamento}T15:00:00Z`), req.usuario!.id);
+    return res.json({ ok: true });
+  } catch (erro) {
+    return tratarErro(res, erro, "Erro interno ao marcar o pagamento.");
+  }
+});
+
+funcionariosRouter.post("/pagamentos/:contaId/desfazer", async (req, res) => {
+  try {
+    await desfazerPagamentoDaSemana(req.params.contaId, req.usuario!.id);
+    return res.json({ ok: true });
+  } catch (erro) {
+    return tratarErro(res, erro, "Erro interno ao desfazer o pagamento.");
   }
 });

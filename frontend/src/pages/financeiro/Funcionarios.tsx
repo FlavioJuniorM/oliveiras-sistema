@@ -7,7 +7,7 @@ import { Input } from "../../components/ui/Input";
 import { Button } from "../../components/ui/Button";
 import { IconeDownload, IconeLapis, IconeLixeira, IconeMais } from "../../components/ui/Icones";
 import type { FolhaFuncionario } from "./folhaPdf";
-import { BotaoAnexar, ListaAnexos, type Anexo } from "../../components/anexos/Anexos";
+import { BotaoAnexar, CampoArquivo, ListaAnexos, enviarAnexo, type Anexo } from "../../components/anexos/Anexos";
 import { normalizar } from "../../components/fornecedores/fornecedores";
 
 interface Funcionario {
@@ -397,12 +397,20 @@ const TIPOS_DESCONTO: { id: Desconto["tipo"]; rotulo: string; icone: string; exe
 ];
 
 /** Sábado em que o desconto vai entrar: o primeiro a partir do dia em que pegou, mas nunca um que já passou. */
+/** Sábado passado (a semana que fechou). Ainda dá para lançar e acertar nele. */
+function sabadoPassado() {
+  const d = new Date(`${proximoSabado()}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 7);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Sábado da semana em que pegou; semanas mais antigas que a passada caem no sábado passado. */
 function sabadoDoDesconto(dia: string) {
   const d = new Date(`${dia}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + ((6 - d.getUTCDay() + 7) % 7));
   const doDia = d.toISOString().slice(0, 10);
-  const deHoje = proximoSabado();
-  return doDia > deHoje ? doDia : deHoje;
+  const limite = sabadoPassado();
+  return doDia > limite ? doDia : limite;
 }
 
 const sabadoCurto = (iso: string) => `sáb ${formatarDataCalendario(iso).slice(0, 5)}`;
@@ -434,7 +442,9 @@ function ModalDescontos({ funcionario, onFechar, onMudou }: { funcionario: Funci
   }, [funcionario.id]);
 
   const valorNumero = Number(valor.replace(/\./g, "").replace(",", ".")) || 0;
-  const sabadoAlvo = data ? sabadoDoDesconto(data) : "";
+  const [sabadoEscolhido, setSabadoEscolhido] = useState<string | null>(null);
+  const sabadoAlvo = sabadoEscolhido ?? (data ? sabadoDoDesconto(data) : "");
+  const opcoesSabado = [sabadoPassado(), proximoSabado()];
   const passaDoSalario = valorNumero > funcionario.salario;
 
   async function salvar(e: FormEvent) {
@@ -446,7 +456,7 @@ function ModalDescontos({ funcionario, onFechar, onMudou }: { funcionario: Funci
     try {
       const r = await api<{ partes: { sabado: string; valor: number }[] }>(`/funcionarios/${funcionario.id}/descontos`, {
         method: "POST",
-        body: { tipo, data, valor: valorNumero, descricao: descricao.trim() || null },
+        body: { tipo, data, valor: valorNumero, descricao: descricao.trim() || null, sabado: sabadoAlvo || null },
       });
       setAviso(`Lançado! ${r.partes.map((p) => `${formatarMoeda(p.valor)} no ${sabadoCurto(p.sabado)}`).join(" e ")}. Já aparece em Contas a Pagar.`);
       setValor("");
@@ -507,11 +517,29 @@ function ModalDescontos({ funcionario, onFechar, onMudou }: { funcionario: Funci
           <Input label="Valor (R$)" inputMode="decimal" placeholder="0,00" value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d,.]/g, ""))} required />
         </div>
         <Input label="Descrição (opcional)" placeholder={TIPOS_DESCONTO.find((t) => t.id === tipo)?.exemplo} value={descricao} maxLength={300} onChange={(e) => setDescricao(e.target.value)} />
+        <div className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-ink">Descontar no salário de</span>
+          <div className="grid grid-cols-2 gap-2">
+            {opcoesSabado.map((s, i) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setSabadoEscolhido(s)}
+                aria-pressed={sabadoAlvo === s}
+                className={`min-h-12 rounded-lg border px-2 py-1.5 text-sm font-semibold ${sabadoAlvo === s ? "border-primary bg-primary text-white" : "border-border bg-white text-ink hover:border-ink/40"}`}
+              >
+                {sabadoCurto(s)}
+                <span className={`block text-[11px] font-normal ${sabadoAlvo === s ? "text-white/80" : "text-muted"}`}>{i === 0 ? "semana que fechou" : "esta semana"}</span>
+              </button>
+            ))}
+          </div>
+        </div>
         {sabadoAlvo && (
           <p className="rounded-lg bg-white px-3 py-2 text-sm text-ink">
             📅 Será descontado no <strong>{sabadoCurto(sabadoAlvo)}</strong>
             {valorNumero > 0 && <> · salário de {formatarMoeda(funcionario.salario)} → <strong>{formatarMoeda(Math.max(funcionario.salario - valorNumero, 0))}</strong></>}
             {passaDoSalario && <span className="mt-1 block text-xs text-gold-texto">O valor passa do salário de um sábado: o restante será descontado no sábado seguinte.</span>}
+            {sabadoAlvo === sabadoPassado() && <span className="mt-1 block text-xs text-muted">Se esse sábado já estiver pago, o desconto vai para o próximo sábado em aberto.</span>}
           </p>
         )}
         {erro && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
@@ -698,6 +726,7 @@ interface PagamentoHistorico {
   formaPagamento: string | null;
   descontos: Desconto[];
   anexos: Anexo[];
+  editavel: boolean;
 }
 
 interface Historico {
@@ -864,6 +893,11 @@ function ModalHistorico({ funcionario, onFechar, onFolha }: { funcionario: Funci
                       🧾 {baixando === p.sabado ? "Gerando..." : "Recibo para assinar (PDF)"}
                     </button>
                   </div>
+                  {p.editavel ? (
+                    <AcertoSemana pagamento={p} funcionario={funcionario} onMudou={carregar} />
+                  ) : (
+                    <p className="mt-3 text-xs text-muted">🔒 Semana fechada: só dá para alterar a semana atual e a passada. Ainda dá para anexar recibos.</p>
+                  )}
                 </div>
               )}
             </li>
@@ -875,5 +909,125 @@ function ModalHistorico({ funcionario, onFechar, onFolha }: { funcionario: Funci
         );
       })}
     </Modal>
+  );
+}
+
+// ───────────── Acertos de uma semana (atual ou a passada) ─────────────
+
+const FORMAS_SALARIO = ["Pix", "Dinheiro", "Transferência", "Cartão de débito"];
+
+function AcertoSemana({ pagamento: p, funcionario, onMudou }: { pagamento: PagamentoHistorico; funcionario: Funcionario; onMudou: () => void }) {
+  const [modo, setModo] = useState<"" | "pagar" | "salario" | "desconto">("");
+  const sabadoIso = p.sabado.slice(0, 10);
+  const [forma, setForma] = useState(FORMAS_SALARIO[0]);
+  const [diaPago, setDiaPago] = useState(sabadoIso <= dataLocalISO() ? sabadoIso : dataLocalISO());
+  const [recibo, setRecibo] = useState<File | null>(null);
+  const [salario, setSalario] = useState(String(p.salarioBruto).replace(".", ","));
+  const [tipo, setTipo] = useState<Desconto["tipo"]>("VALE");
+  const [valorDesconto, setValorDesconto] = useState("");
+  const [diaDesconto, setDiaDesconto] = useState(sabadoIso <= dataLocalISO() ? sabadoIso : dataLocalISO());
+  const [descricao, setDescricao] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+  const pago = p.status === "PAGO" && p.valorPago > 0;
+  const numero = (t: string) => Number(t.replace(/\./g, "").replace(",", ".")) || 0;
+
+  async function executar(acao: () => Promise<unknown>) {
+    setSalvando(true);
+    setErro("");
+    try {
+      await acao();
+      setModo("");
+      setRecibo(null);
+      setValorDesconto("");
+      setDescricao("");
+      onMudou();
+    } catch (e) {
+      setErro(e instanceof ErroApi ? e.message : "Não foi possível salvar.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  const pagar = () =>
+    executar(async () => {
+      await api(`/funcionarios/pagamentos/${p.contaId}/pagar`, { method: "POST", body: { formaPagamento: forma, dataPagamento: diaPago } });
+      if (recibo) await enviarAnexo(p.contaId, "RECIBO_ASSINADO", recibo);
+    });
+  const desfazer = () => {
+    if (!window.confirm(`Desfazer o pagamento do sábado ${formatarDataCalendario(p.sabado)}? Ele volta a ficar "a pagar".`)) return;
+    executar(() => api(`/funcionarios/pagamentos/${p.contaId}/desfazer`, { method: "POST" }));
+  };
+  const salvarSalario = () => executar(() => api(`/funcionarios/pagamentos/${p.contaId}`, { method: "PATCH", body: { salarioBruto: numero(salario) } }));
+  const lancarDesconto = () => {
+    if (numero(valorDesconto) <= 0) return setErro("Informe o valor do desconto.");
+    executar(() =>
+      api(`/funcionarios/${funcionario.id}/descontos`, {
+        method: "POST",
+        body: { tipo, data: diaDesconto, valor: numero(valorDesconto), descricao: descricao.trim() || null, sabado: sabadoIso },
+      })
+    );
+  };
+
+  const botao = (ativo: boolean) =>
+    `h-10 rounded-lg border px-3 text-sm font-semibold ${ativo ? "border-primary bg-primary text-white" : "border-border bg-white text-ink hover:bg-background"}`;
+
+  return (
+    <div className="mt-3 rounded-lg border border-primary/20 bg-primary/[0.03] p-3">
+      <p className="text-xs font-bold uppercase tracking-wide text-primary">Acertos desta semana</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {pago ? (
+          <button type="button" onClick={desfazer} disabled={salvando} className={botao(false)}>↩ Desfazer — não recebeu</button>
+        ) : (
+          <button type="button" onClick={() => setModo(modo === "pagar" ? "" : "pagar")} className={botao(modo === "pagar")}>✅ Marcar que recebeu</button>
+        )}
+        {!pago && <button type="button" onClick={() => setModo(modo === "salario" ? "" : "salario")} className={botao(modo === "salario")}>✏️ Alterar valor da semana</button>}
+        {!pago && <button type="button" onClick={() => setModo(modo === "desconto" ? "" : "desconto")} className={botao(modo === "desconto")}>💸 Desconto nesta semana</button>}
+      </div>
+
+      {modo === "pagar" && (
+        <div className="mt-3 flex flex-col gap-3">
+          <p className="text-sm text-ink">Recebeu <strong>{formatarMoeda(p.liquido)}</strong> referente ao sábado {formatarDataCalendario(p.sabado)}.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1.5 text-sm font-medium text-ink">
+              Forma
+              <select value={forma} onChange={(e) => setForma(e.target.value)} className="h-11 rounded-lg border border-border bg-white px-3 text-sm">
+                {FORMAS_SALARIO.map((f) => <option key={f}>{f}</option>)}
+              </select>
+            </label>
+            <Input label="Dia em que recebeu" type="date" value={diaPago} max={dataLocalISO()} onChange={(e) => setDiaPago(e.target.value)} />
+          </div>
+          <CampoArquivo arquivo={recibo} onChange={setRecibo} rotulo="Recibo assinado (opcional)" dica="Foto do recibo assinado pelo funcionário" />
+          <Button onClick={pagar} disabled={salvando || !diaPago}>{salvando ? "Salvando..." : "Confirmar que recebeu"}</Button>
+        </div>
+      )}
+
+      {modo === "salario" && (
+        <div className="mt-3 flex flex-col gap-3">
+          <Input label="Salário cheio desta semana (R$)" inputMode="decimal" value={salario} onChange={(e) => setSalario(e.target.value.replace(/[^\d,.]/g, ""))} />
+          <p className="text-xs text-muted">Só muda este sábado. Os descontos continuam sendo abatidos. O salário dos próximos sábados não muda.</p>
+          <Button onClick={salvarSalario} disabled={salvando || numero(salario) < 0}>{salvando ? "Salvando..." : `Salvar ${formatarMoeda(numero(salario))}`}</Button>
+        </div>
+      )}
+
+      {modo === "desconto" && (
+        <div className="mt-3 flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {TIPOS_DESCONTO.map((t) => (
+              <button key={t.id} type="button" onClick={() => setTipo(t.id)} aria-pressed={tipo === t.id} className={botao(tipo === t.id)}>
+                <span aria-hidden>{t.icone}</span> {t.rotulo}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Dia em que pegou" type="date" value={diaDesconto} max={dataLocalISO()} onChange={(e) => setDiaDesconto(e.target.value)} />
+            <Input label="Valor (R$)" inputMode="decimal" placeholder="0,00" value={valorDesconto} onChange={(e) => setValorDesconto(e.target.value.replace(/[^\d,.]/g, ""))} />
+          </div>
+          <Input label="Descrição (opcional)" value={descricao} maxLength={300} onChange={(e) => setDescricao(e.target.value)} />
+          <Button onClick={lancarDesconto} disabled={salvando}>{salvando ? "Lançando..." : `Descontar no sábado ${formatarDataCalendario(p.sabado).slice(0, 5)}`}</Button>
+        </div>
+      )}
+      {erro && <p role="alert" className="mt-2 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
+    </div>
   );
 }
