@@ -98,7 +98,7 @@ export function Funcionarios() {
         </p>
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
           <Button variante="secundaria" tamanho="grande" className="whitespace-nowrap" onClick={() => setFolha({})}>
-            🧾 Folha da semana
+            Folha da semana
           </Button>
           <Button tamanho="grande" className="whitespace-nowrap" onClick={() => setEdicao({})}>
             <IconeMais tamanho={20} />
@@ -165,8 +165,8 @@ export function Funcionarios() {
 
               {!inativo && (
                 <div className="mt-2 grid grid-cols-1 gap-1 text-sm">
-                  {f.proximoPagamento && <p className="text-ink">📅 Próximo pagamento: <strong>sáb {formatarDataCalendario(f.proximoPagamento.data).slice(0, 5)}</strong> · {formatarMoeda(f.proximoPagamento.valor)}</p>}
-                  {f.atrasados > 0 && <p className="font-semibold text-danger">⚠ {f.atrasados} sábado(s) sem confirmar pagamento · {formatarMoeda(f.valorAtrasado)}</p>}
+                  {f.proximoPagamento && <p className="text-ink">Próximo pagamento: <strong>sáb {formatarDataCalendario(f.proximoPagamento.data).slice(0, 5)}</strong> · {formatarMoeda(f.proximoPagamento.valor)}</p>}
+                  {f.atrasados > 0 && <p className="font-semibold text-danger">{f.atrasados} sábado(s) sem confirmar pagamento · {formatarMoeda(f.valorAtrasado)}</p>}
                   {f.ultimoPagamento && <p className="text-muted">Último pago: sáb {formatarDataCalendario(f.ultimoPagamento.data).slice(0, 5)}</p>}
                 </div>
               )}
@@ -181,8 +181,8 @@ export function Funcionarios() {
 
               {!inativo && (
                 <div className="mt-auto grid grid-cols-2 gap-2 pt-4">
-                  <Button variante="secundaria" onClick={() => setDescontosDe(f)}>💸 Descontos</Button>
-                  <Button variante="secundaria" onClick={() => setFolha({ funcionario: f })}>🧾 Folha / recibo</Button>
+                  <Button variante="secundaria" onClick={() => setDescontosDe(f)}>Descontos</Button>
+                  <Button variante="secundaria" onClick={() => setFolha({ funcionario: f })}>Folha / recibo</Button>
                 </div>
               )}
               <div className={`flex gap-2 ${inativo ? "mt-auto pt-4" : "pt-2"}`}>
@@ -304,7 +304,7 @@ function ModalFuncionario({ funcionario, onFechar, onSalvo }: { funcionario?: Fu
         </fieldset>
 
         <section className="rounded-xl border-2 border-primary/20 bg-primary/[0.04] p-4">
-          <p className="font-semibold text-ink">💰 Pagamento — todo sábado</p>
+          <p className="font-semibold text-ink">Pagamento — todo sábado</p>
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Input label="Valor pago em cada sábado (R$)" type="number" inputMode="decimal" min="0.01" step="0.01" required {...campo("salario")} />
             <Input label="Primeiro sábado a pagar" type="date" required {...campo("inicioPagamentos")} />
@@ -389,11 +389,11 @@ interface Desconto {
   sabadoPago: boolean;
 }
 
-const TIPOS_DESCONTO: { id: Desconto["tipo"]; rotulo: string; icone: string; exemplo: string }[] = [
-  { id: "ADIANTAMENTO", rotulo: "Adiantamento", icone: "💵", exemplo: "Ex.: adiantamento em dinheiro" },
-  { id: "VALE", rotulo: "Vale", icone: "🎟️", exemplo: "Ex.: vale para o mercado" },
-  { id: "CARNE", rotulo: "Carne / produtos", icone: "🥩", exemplo: "Ex.: 2 kg de picanha" },
-  { id: "OUTRO", rotulo: "Outro", icone: "📝", exemplo: "Ex.: quebra de material" },
+const TIPOS_DESCONTO: { id: Desconto["tipo"]; rotulo: string; exemplo: string }[] = [
+  { id: "ADIANTAMENTO", rotulo: "Adiantamento", exemplo: "Ex.: adiantamento em dinheiro" },
+  { id: "VALE", rotulo: "Vale", exemplo: "Ex.: vale para o mercado" },
+  { id: "CARNE", rotulo: "Carne / produtos", exemplo: "Ex.: 2 kg de picanha" },
+  { id: "OUTRO", rotulo: "Outro", exemplo: "Ex.: quebra de material" },
 ];
 
 /** Sábado em que o desconto vai entrar: o primeiro a partir do dia em que pegou, mas nunca um que já passou. */
@@ -508,7 +508,7 @@ function ModalDescontos({ funcionario, onFechar, onMudou }: { funcionario: Funci
               aria-pressed={tipo === t.id}
               className={`min-h-12 rounded-lg border px-2 py-2 text-sm font-semibold transition ${tipo === t.id ? "border-primary bg-primary text-white" : "border-border bg-white text-ink hover:border-ink/40"}`}
             >
-              <span className="mr-1" aria-hidden>{t.icone}</span>{t.rotulo}
+              {t.rotulo}
             </button>
           ))}
         </div>
@@ -536,7 +536,7 @@ function ModalDescontos({ funcionario, onFechar, onMudou }: { funcionario: Funci
         </div>
         {sabadoAlvo && (
           <p className="rounded-lg bg-white px-3 py-2 text-sm text-ink">
-            📅 Será descontado no <strong>{sabadoCurto(sabadoAlvo)}</strong>
+            Será descontado no <strong>{sabadoCurto(sabadoAlvo)}</strong>
             {valorNumero > 0 && <> · salário de {formatarMoeda(funcionario.salario)} → <strong>{formatarMoeda(Math.max(funcionario.salario - valorNumero, 0))}</strong></>}
             {passaDoSalario && <span className="mt-1 block text-xs text-gold-texto">O valor passa do salário de um sábado: o restante será descontado no sábado seguinte.</span>}
             {sabadoAlvo === sabadoPassado() && <span className="mt-1 block text-xs text-muted">Se esse sábado já estiver pago, o desconto vai para o próximo sábado em aberto.</span>}
@@ -565,7 +565,7 @@ function ModalDescontos({ funcionario, onFechar, onMudou }: { funcionario: Funci
             return (
               <li key={d.grupoId} className="flex items-start justify-between gap-3 px-3 py-2.5">
                 <div className="min-w-0">
-                  <p className="text-sm text-ink"><span aria-hidden>{info?.icone} </span><strong>{d.rotulo}</strong>{d.descricao && <span className="text-muted"> · {d.descricao}</span>}</p>
+                  <p className="text-sm text-ink"><strong>{d.rotulo}</strong>{d.descricao && <span className="text-muted"> · {d.descricao}</span>}</p>
                   <p className="text-xs text-muted">
                     Pegou em {formatarDataCalendario(d.data)} · descontado no{" "}
                     {partes.map((p) => (p.sabado ? `${sabadoCurto(p.sabado)}${partes.length > 1 ? ` (${formatarMoeda(p.valor)})` : ""}` : "sábado excluído")).join(" e ")}
@@ -828,7 +828,7 @@ function ModalHistorico({ funcionario, onFechar, onFolha }: { funcionario: Funci
             {rotulo}
           </button>
         ))}
-        <button type="button" onClick={onFolha} className="ml-auto h-9 rounded-full px-3 text-sm font-semibold text-primary hover:bg-primary/5">🧾 Gerar folha</button>
+        <button type="button" onClick={onFolha} className="ml-auto h-9 rounded-full px-3 text-sm font-semibold text-primary hover:bg-primary/5">Gerar folha</button>
       </div>
 
       {erro && <p role="alert" className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
@@ -890,13 +890,13 @@ function ModalHistorico({ funcionario, onFechar, onFolha }: { funcionario: Funci
                     <ListaAnexos anexos={p.anexos} onExcluido={carregar} />
                     <BotaoAnexar contaPagarId={p.contaId} tipo="RECIBO_ASSINADO" rotulo="Anexar recibo assinado" onEnviado={carregar} />
                     <button type="button" onClick={() => baixarRecibo(p.sabado)} disabled={baixando === p.sabado} className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs font-semibold text-ink hover:bg-background disabled:opacity-50">
-                      🧾 {baixando === p.sabado ? "Gerando..." : "Recibo para assinar (PDF)"}
+                      {baixando === p.sabado ? "Gerando..." : "Recibo para assinar (PDF)"}
                     </button>
                   </div>
                   {p.editavel ? (
                     <AcertoSemana pagamento={p} funcionario={funcionario} onMudou={carregar} />
                   ) : (
-                    <p className="mt-3 text-xs text-muted">🔒 Semana fechada: só dá para alterar a semana atual e a passada. Ainda dá para anexar recibos.</p>
+                    <p className="mt-3 text-xs text-muted">Semana fechada: só dá para alterar a semana atual e a passada. Ainda dá para anexar recibos.</p>
                   )}
                 </div>
               )}
@@ -979,10 +979,10 @@ function AcertoSemana({ pagamento: p, funcionario, onMudou }: { pagamento: Pagam
         {pago ? (
           <button type="button" onClick={desfazer} disabled={salvando} className={botao(false)}>↩ Desfazer — não recebeu</button>
         ) : (
-          <button type="button" onClick={() => setModo(modo === "pagar" ? "" : "pagar")} className={botao(modo === "pagar")}>✅ Marcar que recebeu</button>
+          <button type="button" onClick={() => setModo(modo === "pagar" ? "" : "pagar")} className={botao(modo === "pagar")}>Marcar que recebeu</button>
         )}
-        {!pago && <button type="button" onClick={() => setModo(modo === "salario" ? "" : "salario")} className={botao(modo === "salario")}>✏️ Alterar valor da semana</button>}
-        {!pago && <button type="button" onClick={() => setModo(modo === "desconto" ? "" : "desconto")} className={botao(modo === "desconto")}>💸 Desconto nesta semana</button>}
+        {!pago && <button type="button" onClick={() => setModo(modo === "salario" ? "" : "salario")} className={botao(modo === "salario")}>Alterar valor da semana</button>}
+        {!pago && <button type="button" onClick={() => setModo(modo === "desconto" ? "" : "desconto")} className={botao(modo === "desconto")}>Desconto nesta semana</button>}
       </div>
 
       {modo === "pagar" && (
@@ -1015,7 +1015,7 @@ function AcertoSemana({ pagamento: p, funcionario, onMudou }: { pagamento: Pagam
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {TIPOS_DESCONTO.map((t) => (
               <button key={t.id} type="button" onClick={() => setTipo(t.id)} aria-pressed={tipo === t.id} className={botao(tipo === t.id)}>
-                <span aria-hidden>{t.icone}</span> {t.rotulo}
+                {t.rotulo}
               </button>
             ))}
           </div>

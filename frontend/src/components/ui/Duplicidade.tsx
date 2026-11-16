@@ -53,7 +53,7 @@ export function AvisoDuplicidade({ resultado, tipo }: { resultado: ResultadoDupl
   return (
     <div role="alert" className={`rounded-lg border px-3 py-2.5 text-sm ${bloqueia ? "border-danger/40 bg-danger/[0.07] text-ink" : "border-gold/50 bg-gold/[0.12] text-ink"}`}>
       <p className={`font-semibold ${bloqueia ? "text-danger" : "text-gold-texto"}`}>
-        {bloqueia ? `⛔ Já existe ${tipo} igual — não dá para cadastrar de novo` : `⚠ Atenção: parece que ${tipo} já está cadastrado`}
+        {bloqueia ? `Já existe ${tipo} igual — não dá para cadastrar de novo` : `Atenção: parece que ${tipo} já está cadastrado`}
       </p>
       <ul className="mt-1 space-y-0.5">
         {itens.slice(0, 3).map((d) => (

@@ -34,7 +34,7 @@ export function AppLayout() {
         <Topbar titulo={titulo} />
         {precisaTrocarSenha && location.pathname !== "/minha-senha" && (
           <div className="flex flex-wrap items-center justify-between gap-2 bg-danger px-4 py-2.5 text-sm font-semibold text-white lg:px-6">
-            <span>⚠ Você está usando uma senha fraca ou padrão. Qualquer pessoa pode adivinhá-la.</span>
+            <span>Você está usando uma senha fraca ou padrão. Qualquer pessoa pode adivinhá-la.</span>
             <Link to="/minha-senha" className="rounded-lg bg-white px-3 py-1.5 text-danger">Trocar agora</Link>
           </div>
         )}

@@ -59,7 +59,7 @@ export function Usuarios() {
               <div className="min-w-0">
                 <p className="font-medium text-ink">{u.nome}{souEu && <span className="ml-2 rounded-full bg-gold/15 px-2 py-0.5 text-xs font-semibold text-gold-texto">você</span>}</p>
                 <p className="text-xs text-muted mt-0.5">Login: {u.login} · {u.papel === "ADMINISTRATIVO" ? "Administrativo" : "Funcionário"}</p>
-                <p className="text-xs mt-0.5">{u.email ? <span className="text-ink">✉ {u.email}{u.papel === "ADMINISTRATIVO" && u.avisosEmail ? <span className="ml-1 text-success">· recebe o aviso das contas</span> : ""}</span> : <span className="text-muted">Sem e-mail</span>}</p>
+                <p className="text-xs mt-0.5">{u.email ? <span className="text-ink">{u.email}{u.papel === "ADMINISTRATIVO" && u.avisosEmail ? <span className="ml-1 text-success">· recebe o aviso das contas</span> : ""}</span> : <span className="text-muted">Sem e-mail</span>}</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={u.status} />
@@ -315,7 +315,7 @@ function CartaoAvisoEmail() {
     <Card>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="font-semibold text-ink">✉ Aviso diário das contas a pagar</p>
+          <p className="font-semibold text-ink">Aviso diário das contas a pagar</p>
           <p className="mt-1 text-sm text-muted">Todo dia, às 7h, os administradores com e-mail recebem quais contas vencem no dia (e as atrasadas), com os códigos de barras.</p>
           {status && (
             <p className={`mt-2 text-sm font-semibold ${pronto ? "text-success" : "text-gold-texto"}`}>

@@ -651,7 +651,7 @@ function GastosEContas({ d }: { d: Relatorio }) {
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Painel titulo="Contas vencidas" subtitulo="Situação de hoje, não pagas">
-          <ListaContas contas={c.vencidas.lista} vazio="Nenhuma conta vencida. 👏" />
+          <ListaContas contas={c.vencidas.lista} vazio="Nenhuma conta vencida. " />
         </Painel>
         <Painel titulo="A vencer nos próximos 7 dias">
           <ListaContas contas={c.proximos7dias.lista} vazio="Nada vence nos próximos 7 dias." />
@@ -688,7 +688,7 @@ function Clientes({ d }: { d: Relatorio }) {
           <Tabela
             colunas={[{ titulo: "Cliente" }, { titulo: "Desde" }, { titulo: "Atrasado", direita: true }, { titulo: "Saldo", direita: true }]}
             linhas={ar.devedores.map((x) => [x.nome, dataBR(x.maisAntigo), <span className={x.vencido > 0 ? "font-semibold text-danger" : "text-muted"}>{moeda(x.vencido)}</span>, <strong>{moeda(x.saldo)}</strong>])}
-            vazio="Ninguém devendo. 👏"
+            vazio="Ninguém devendo. "
           />
         </Painel>
       </div>

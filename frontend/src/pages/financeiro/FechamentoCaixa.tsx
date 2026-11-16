@@ -27,7 +27,6 @@ const NOMES_FORMA: Record<string, string> = {
   OUTROS: "Outros",
 };
 
-const ICONES_FORMA: Record<string, string> = { DINHEIRO: "💵", PIX: "⚡", CARTAO_DEBITO: "💳", CARTAO_CREDITO: "💳" };
 
 function hora(instante: string) {
   return new Date(instante).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -92,13 +91,13 @@ export function FechamentoCaixa() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div><p className="text-sm text-muted">Tudo o que foi recebido no dia, por forma de pagamento</p></div>
-        <div className="flex items-end gap-2"><Input label="Dia" type="date" value={data} max={dataLocalISO()} onChange={(e) => e.target.value && setData(e.target.value)} /><Button variante="secundaria" disabled={!caixa} onClick={imprimir}>🖨 Imprimir</Button></div>
+        <div className="flex items-end gap-2"><Input label="Dia" type="date" value={data} max={dataLocalISO()} onChange={(e) => e.target.value && setData(e.target.value)} /><Button variante="secundaria" disabled={!caixa} onClick={imprimir}>Imprimir</Button></div>
       </div>
       {erro && <p className="rounded-lg bg-danger/10 px-4 py-3 text-sm text-danger">{erro}</p>}
       {carregando && !caixa && <Card><p className="text-sm text-muted">Carregando...</p></Card>}
       {caixa && <>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {caixa.porForma.map((linha) => <Card key={linha.forma}><p className="text-sm text-muted">{ICONES_FORMA[linha.forma] || "•"} {NOMES_FORMA[linha.forma] || linha.forma}</p><p className="mt-1 font-display text-3xl text-ink">{formatarMoeda(linha.total)}</p><p className="mt-1 text-xs text-muted">{linha.quantidade} {linha.quantidade === 1 ? "recebimento" : "recebimentos"}</p></Card>)}
+          {caixa.porForma.map((linha) => <Card key={linha.forma}><p className="text-sm text-muted">{NOMES_FORMA[linha.forma] || linha.forma}</p><p className="mt-1 font-display text-3xl text-ink">{formatarMoeda(linha.total)}</p><p className="mt-1 text-xs text-muted">{linha.quantidade} {linha.quantidade === 1 ? "recebimento" : "recebimentos"}</p></Card>)}
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Card className="border-2 border-success/30"><p className="text-sm text-muted">Total recebido no dia</p><p className="mt-1 font-display text-4xl text-success">{formatarMoeda(caixa.totalRecebido)}</p></Card>

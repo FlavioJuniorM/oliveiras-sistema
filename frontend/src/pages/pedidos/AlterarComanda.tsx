@@ -9,22 +9,22 @@ import { Input } from "../../components/ui/Input";
 type ModoPagamento = "DINHEIRO" | "PIX" | "CARTAO_DEBITO" | "CARTAO_CREDITO" | "TRANSFERENCIA" | "DIVIDIDO" | "A_PRAZO" | "NO_RECEBIMENTO";
 
 const FORMAS_SIMPLES = [
-  { valor: "DINHEIRO", rotulo: "💵 Dinheiro" },
-  { valor: "PIX", rotulo: "⚡ Pix" },
-  { valor: "CARTAO_DEBITO", rotulo: "💳 Débito" },
-  { valor: "CARTAO_CREDITO", rotulo: "💳 Crédito" },
-  { valor: "TRANSFERENCIA", rotulo: "🏦 Transferência" },
+  { valor: "DINHEIRO", rotulo: "Dinheiro" },
+  { valor: "PIX", rotulo: "Pix" },
+  { valor: "CARTAO_DEBITO", rotulo: "Débito" },
+  { valor: "CARTAO_CREDITO", rotulo: "Crédito" },
+  { valor: "TRANSFERENCIA", rotulo: "Transferência" },
 ];
 
 const OPCOES_PAGAMENTO: { valor: ModoPagamento; rotulo: string }[] = [
-  { valor: "DINHEIRO", rotulo: "💵 Dinheiro" },
-  { valor: "PIX", rotulo: "⚡ Pix" },
-  { valor: "CARTAO_DEBITO", rotulo: "💳 Débito" },
-  { valor: "CARTAO_CREDITO", rotulo: "💳 Crédito" },
-  { valor: "TRANSFERENCIA", rotulo: "🏦 Transferência" },
-  { valor: "DIVIDIDO", rotulo: "➗ Duas formas" },
-  { valor: "A_PRAZO", rotulo: "📄 A prazo (paga depois)" },
-  { valor: "NO_RECEBIMENTO", rotulo: "🛵 Cobrar na entrega / retirada" },
+  { valor: "DINHEIRO", rotulo: "Dinheiro" },
+  { valor: "PIX", rotulo: "Pix" },
+  { valor: "CARTAO_DEBITO", rotulo: "Débito" },
+  { valor: "CARTAO_CREDITO", rotulo: "Crédito" },
+  { valor: "TRANSFERENCIA", rotulo: "Transferência" },
+  { valor: "DIVIDIDO", rotulo: "Duas formas" },
+  { valor: "A_PRAZO", rotulo: "A prazo (paga depois)" },
+  { valor: "NO_RECEBIMENTO", rotulo: "Cobrar na entrega / retirada" },
 ];
 
 const NOMES_FORMA: Record<string, string> = {
@@ -238,8 +238,8 @@ export function ModalAlterarComanda({
           <section className="mt-6 border-t border-border pt-5">
             <p className="text-sm font-semibold text-ink">Retirada ou entrega</p>
             <div className="mt-2 grid grid-cols-2 gap-2">
-              <button type="button" aria-pressed={tipoEntrega === "RETIRADA"} onClick={() => setTipoEntrega("RETIRADA")} className={botao(tipoEntrega === "RETIRADA")}>🏪 Retirada na loja</button>
-              <button type="button" aria-pressed={tipoEntrega === "DELIVERY"} onClick={() => setTipoEntrega("DELIVERY")} className={botao(tipoEntrega === "DELIVERY")}>🛵 Entrega</button>
+              <button type="button" aria-pressed={tipoEntrega === "RETIRADA"} onClick={() => setTipoEntrega("RETIRADA")} className={botao(tipoEntrega === "RETIRADA")}>Retirada na loja</button>
+              <button type="button" aria-pressed={tipoEntrega === "DELIVERY"} onClick={() => setTipoEntrega("DELIVERY")} className={botao(tipoEntrega === "DELIVERY")}>Entrega</button>
             </div>
             {tipoEntrega === "DELIVERY" && <div className="mt-3 flex flex-col gap-3"><Input label="Endereço de entrega" value={endereco} onChange={(e) => setEndereco(e.target.value)} placeholder="Rua, número, bairro, complemento" /><CampoTaxaEntrega valor={taxaTexto} onChange={setTaxaTexto} id={`taxa-alterar-${pedido.id}`} /><ResumoComTaxa produtos={valorProdutos(pedido)} taxa={taxaParaSalvar} /></div>}
             {!entregue && mudouEntrega && (status === "AGUARDANDO_RETIRADA" || status === "EM_ENTREGA") && (

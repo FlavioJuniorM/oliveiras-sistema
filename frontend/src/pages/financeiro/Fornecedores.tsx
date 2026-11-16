@@ -91,7 +91,7 @@ export function Fornecedores() {
               {f.observacoes && <p className="mt-3 rounded-lg bg-background px-3 py-2 text-xs text-ink">{f.observacoes}</p>}
               <div className="mt-auto pt-4">
                 <p className="mb-3 text-xs text-muted">{f.quantidadeContas ? `${f.quantidadeContas} conta(s) lançada(s) em Contas a Pagar` : "Nenhuma conta lançada ainda"}</p>
-                <Button className="mb-2 w-full" onClick={() => setBoletosDe(f)}>🧾 Ver boletos (abertos e pagos)</Button>
+                <Button className="mb-2 w-full" onClick={() => setBoletosDe(f)}>Ver boletos (abertos e pagos)</Button>
                 <div className="flex gap-2">
                   <Button variante="secundaria" className="flex-1" onClick={() => setEdicao({ fornecedor: f })}><IconeLapis tamanho={16} />Alterar</Button>
                   <Button variante="secundaria" className="flex-1 !text-danger hover:!bg-danger/5" onClick={() => setExclusao(f)}><IconeLixeira tamanho={16} />Excluir</Button>

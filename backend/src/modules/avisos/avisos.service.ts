@@ -76,9 +76,9 @@ export function montarEmail(resumo: Awaited<ReturnType<typeof resumoContasDoDia>
       <div style="font-size:22px;font-weight:bold;margin-top:4px">Contas a pagar · ${dia}</div>
     </div>
     <div style="border:1px solid #eee;border-top:0;padding:8px 22px 22px;border-radius:0 0 10px 10px">
-      ${resumo.deHoje.length ? "" : `<p style="margin-top:18px">Nenhuma conta vence hoje. 👍</p>`}
+      ${resumo.deHoje.length ? "" : `<p style="margin-top:18px">Nenhuma conta vence hoje.</p>`}
       ${tabela("Vencem hoje", "#c8102e", resumo.deHoje, resumo.totalHoje, false)}
-      ${tabela("⚠ Vencidas e ainda não pagas", "#9a1b1b", resumo.vencidas, resumo.totalVencidas, true)}
+      ${tabela("Vencidas e ainda não pagas", "#9a1b1b", resumo.vencidas, resumo.totalVencidas, true)}
       ${tabela("Próximos 3 dias", "#555", resumo.proximas, resumo.totalProximas, true)}
       <p style="margin-top:26px"><a href="${LINK_SISTEMA}/financeiro/contas-a-pagar" style="background:#c8102e;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Abrir Contas a Pagar</a></p>
       <p style="color:#888;font-size:12px;margin-top:22px">Aviso automático do sistema. Depois de pagar, confirme o pagamento no sistema. Para parar de receber, peça ao administrador em Usuários.</p>

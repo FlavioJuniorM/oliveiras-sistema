@@ -135,10 +135,10 @@ export function CampoArquivo({
       ) : (
         <div className="grid grid-cols-2 gap-2">
           <button type="button" onClick={() => camera.current?.click()} className="flex min-h-12 items-center justify-center gap-2 rounded-lg border border-dashed border-ink/30 bg-white px-3 text-sm font-semibold text-ink hover:bg-background">
-            📷 Tirar foto
+            Tirar foto
           </button>
           <button type="button" onClick={() => arquivos.current?.click()} className="flex min-h-12 items-center justify-center gap-2 rounded-lg border border-dashed border-ink/30 bg-white px-3 text-sm font-semibold text-ink hover:bg-background">
-            📎 Foto ou PDF
+            Foto ou PDF
           </button>
         </div>
       )}
@@ -229,7 +229,7 @@ export function ListaAnexos({ anexos, onExcluido }: { anexos: Anexo[]; onExcluid
         {anexos.map((a) => (
           <span key={a.id} className="inline-flex max-w-full items-center overflow-hidden rounded-full border border-border bg-white text-xs">
             <button type="button" onClick={() => setVendo(a)} className="flex min-w-0 items-center gap-1 py-1 pl-2.5 pr-2 font-semibold text-primary hover:bg-primary/5" title={a.nome}>
-              <span aria-hidden>{ehPdf(a) ? "📄" : "🖼️"}</span>
+              <span className="rounded bg-primary/10 px-1 text-[10px] font-bold">{ehPdf(a) ? "PDF" : "FOTO"}</span>
               <span className="truncate">{a.tipo === "RECIBO_ASSINADO" ? "Recibo assinado" : "Comprovante"}</span>
             </button>
             {onExcluido && (
@@ -283,7 +283,7 @@ export function BotaoAnexar({
   if (!aberto) {
     return (
       <button type="button" onClick={() => setAberto(true)} className={`inline-flex items-center gap-1 rounded-full border border-dashed border-primary/50 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/5 ${className}`}>
-        📎 {rotulo}
+        {rotulo}
       </button>
     );
   }

@@ -33,10 +33,10 @@ interface PedidosDoDiaCaixa {
 const DIAS_SEMANA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const FORMAS = [
-  { chave: "dinheiro", rotulo: "Dinheiro", icone: "💵" },
-  { chave: "pix", rotulo: "Pix", icone: "⚡" },
-  { chave: "cartoes", rotulo: "Cartões", icone: "💳" },
-  { chave: "ceasa", rotulo: "CEASA", icone: "🥬" },
+  { chave: "dinheiro", rotulo: "Dinheiro" },
+  { chave: "pix", rotulo: "Pix" },
+  { chave: "cartoes", rotulo: "Cartões" },
+  { chave: "ceasa", rotulo: "CEASA" },
 ] as const;
 
 /** Valor curto para caber na célula do celular: 850 → "850", 1.225,18 → "1,2 mil". */
@@ -177,17 +177,17 @@ export function LancamentosCaixa() {
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
             {FORMAS.map((forma) => (
               <div key={forma.chave} className="rounded-lg bg-background px-3 py-2.5">
-                <p className="text-xs text-muted">{forma.icone} {forma.rotulo} no mês</p>
+                <p className="text-xs text-muted">{forma.rotulo} no mês</p>
                 <p className="whitespace-nowrap font-display text-lg text-ink sm:text-xl">{formatarMoeda(totaisMes[forma.chave])}</p>
               </div>
             ))}
             <div className="rounded-lg bg-primary/[0.06] px-3 py-2.5">
-              <p className="text-xs text-muted">🛵 Pedidos delivery no mês</p>
+              <p className="text-xs text-muted">Pedidos delivery no mês</p>
               <p className="whitespace-nowrap font-display text-lg text-ink sm:text-xl">{formatarMoeda(totaisMes.pedidos)}</p>
               <p className="text-[11px] text-muted">{quantidadePedidosMes} {quantidadePedidosMes === 1 ? "comanda entregue" : "comandas entregues"}</p>
             </div>
             <div className="rounded-lg bg-danger/[0.07] px-3 py-2.5">
-              <p className="text-xs text-muted">🔻 Gastos / sangrias</p>
+              <p className="text-xs text-muted">Gastos / sangrias</p>
               <p className="whitespace-nowrap font-display text-lg text-danger sm:text-xl">− {formatarMoeda(totaisMes.gastos)}</p>
             </div>
             <div className="rounded-lg bg-success/[0.09] px-3 py-2.5">
@@ -226,7 +226,7 @@ export function LancamentosCaixa() {
                   <span className={`flex h-6 w-6 items-center justify-center self-start rounded-full text-xs font-bold sm:text-sm ${dia === hoje ? "bg-primary text-white" : futuro ? "text-muted" : "text-ink"}`}>{Number(dia.slice(8))}</span>
                   {totalGeral > 0 && <span className={`mt-auto truncate text-[10px] font-bold leading-tight sm:text-xs xl:hidden ${lancamento ? "text-success" : "text-gold-texto"}`}>{moedaCurta(totalGeral)}</span>}
                   {totalGeral > 0 && <span className={`mt-auto hidden whitespace-nowrap text-sm font-bold xl:block ${lancamento ? "text-success" : "text-gold-texto"}`}>{formatarMoeda(totalGeral)}</span>}
-                  {pedidosDia && <span className="hidden truncate text-[11px] text-muted sm:block">🛵 {pedidosDia.quantidade} {pedidosDia.quantidade === 1 ? "pedido" : "pedidos"}</span>}
+                  {pedidosDia && <span className="hidden truncate text-[11px] text-muted sm:block">{pedidosDia.quantidade} {pedidosDia.quantidade === 1 ? "pedido" : "pedidos"}</span>}
                   {faltando && !pedidosDia && <span className="mt-auto hidden text-[11px] text-muted sm:block">sem lançamento</span>}
                 </button>
               );
@@ -251,7 +251,7 @@ export function LancamentosCaixa() {
                   <ul className="divide-y divide-border">
                     {FORMAS.map((forma) => (
                       <li key={forma.chave} className="flex items-center justify-between py-3">
-                        <span className="text-ink">{forma.icone} {forma.rotulo}</span>
+                        <span className="text-ink">{forma.rotulo}</span>
                         <strong className="text-ink">{formatarMoeda(lancamentoDoDia[forma.chave])}</strong>
                       </li>
                     ))}
@@ -265,7 +265,7 @@ export function LancamentosCaixa() {
 
                 <div className="mt-1 border-t border-border py-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-ink">🛵 Pedidos delivery <span className="text-xs text-muted">({pedidosDoDia?.quantidade ?? 0} {pedidosDoDia?.quantidade === 1 ? "entregue" : "entregues"})</span></span>
+                    <span className="text-ink">Pedidos delivery <span className="text-xs text-muted">({pedidosDoDia?.quantidade ?? 0} {pedidosDoDia?.quantidade === 1 ? "entregue" : "entregues"})</span></span>
                     <strong className="text-ink">{formatarMoeda(pedidosDoDia?.total ?? 0)}</strong>
                   </div>
                   {pedidosDoDia && pedidosDoDia.pedidos.length > 0 && (
@@ -290,7 +290,7 @@ export function LancamentosCaixa() {
                 </div>
                 {!!lancamentoDoDia?.gastos && (
                   <div className="mt-2 rounded-lg bg-danger/[0.07] px-3 py-3">
-                    <div className="flex items-center justify-between"><span className="font-semibold text-ink">🔻 Gastos / sangrias</span><span className="font-display text-xl text-danger">− {formatarMoeda(lancamentoDoDia.gastos)}</span></div>
+                    <div className="flex items-center justify-between"><span className="font-semibold text-ink">Gastos / sangrias</span><span className="font-display text-xl text-danger">− {formatarMoeda(lancamentoDoDia.gastos)}</span></div>
                     {lancamentoDoDia.gastosDescricao && <p className="mt-1 text-sm text-ink">{lancamentoDoDia.gastosDescricao}</p>}
                   </div>
                 )}
@@ -451,13 +451,13 @@ function ModalLancamento({
       <form onSubmit={salvar} className="mt-4 flex flex-col gap-4">
         <Input label="Dia do caixa" type="date" value={data} max={dataLocalISO()} onChange={(e) => e.target.value && trocarDia(e.target.value)} required />
         {procurandoDia && <p className="-mt-2 text-xs text-muted">Verificando o dia...</p>}
-        {jaLancado && !procurandoDia && <p className="-mt-2 rounded-lg bg-gold/15 px-3 py-2 text-sm text-ink">✏️ O dia {formatarDataCalendario(data)} já tem lançamento — você está <strong>alterando</strong> os valores dele.</p>}
+        {jaLancado && !procurandoDia && <p className="-mt-2 rounded-lg bg-gold/15 px-3 py-2 text-sm text-ink">O dia {formatarDataCalendario(data)} já tem lançamento — você está <strong>alterando</strong> os valores dele.</p>}
         <p className="-mb-2 text-sm font-semibold text-ink">Entradas</p>
         <div className="grid grid-cols-2 gap-3 [&>*]:min-w-0">
           {FORMAS.map((forma) => (
             <Input
               key={forma.chave}
-              label={`${forma.icone} ${forma.rotulo} (R$)`}
+              label={`${forma.rotulo} (R$)`}
               type="number"
               inputMode="decimal"
               min="0"
@@ -470,7 +470,7 @@ function ModalLancamento({
           ))}
         </div>
         <div className="rounded-lg border-2 border-danger/20 bg-danger/[0.04] p-3">
-          <p className="text-sm font-semibold text-ink">🔻 Gastos do dia (sangrias)</p>
+          <p className="text-sm font-semibold text-ink">Gastos do dia (sangrias)</p>
           <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[10rem_1fr]">
             <Input label="Valor (R$)" type="number" inputMode="decimal" min="0" step="0.01" placeholder="0,00" className="w-full min-w-0" value={gastos} onChange={(e) => setGastos(e.target.value)} />
             <Input label="Com o quê? (opcional)" placeholder="Ex.: sangria R$ 200, gelo, frete" className="w-full min-w-0" value={gastosDescricao} onChange={(e) => setGastosDescricao(e.target.value)} />
@@ -478,7 +478,7 @@ function ModalLancamento({
         </div>
         <div className="rounded-lg bg-background px-4 py-3 text-sm">
           <div className="flex items-center justify-between gap-3"><span className="text-muted">Caixa da loja + CEASA</span><strong className="whitespace-nowrap text-ink">{formatarMoeda(total)}</strong></div>
-          <div className="mt-1 flex items-center justify-between gap-3"><span className="text-muted">🛵 Pedidos delivery entregues ({pedidosInfo?.quantidade ?? 0}) · automático</span><strong className="whitespace-nowrap text-ink">{formatarMoeda(pedidosDia)}</strong></div>
+          <div className="mt-1 flex items-center justify-between gap-3"><span className="text-muted">Pedidos delivery entregues ({pedidosInfo?.quantidade ?? 0}) · automático</span><strong className="whitespace-nowrap text-ink">{formatarMoeda(pedidosDia)}</strong></div>
           <div className="mt-1 flex items-center justify-between gap-3"><span className="text-muted">Gastos / sangrias</span><strong className="whitespace-nowrap text-danger">− {formatarMoeda(totalGastos)}</strong></div>
         </div>
         <div className="flex items-center justify-between rounded-lg bg-ink px-4 py-3 text-white">
