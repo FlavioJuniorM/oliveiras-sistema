@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { gerarSalariosDeSabado } from "../funcionarios/funcionarios.service";
 import { formatarDataCalendario, hojeCalendario } from "../../shared/datas";
 import { prisma } from "../../config/database";
@@ -81,11 +82,13 @@ export async function criarContaPagarDividida(
     { valor: segundaCentavos / 100, vencimento: segundoVencimento, sufixo: "2/2", codigo: codigoBarras2 || null },
   ];
 
+  const grupoBoleto = randomUUID();
   const contas = await prisma.$transaction(
     parcelas.map((p) =>
       prisma.contaPagar.create({
         data: {
           ...dados,
+          grupoBoleto,
           descricao: `${descricao} (boleto ${p.sufixo})`,
           valor: p.valor,
           vencimento: p.vencimento,
@@ -117,7 +120,8 @@ export async function pagarContaPagar(
   id: string,
   valorPago: number,
   formaPagamento: string,
-  usuarioId: string
+  usuarioId: string,
+  dataPagamento: Date = new Date()
 ) {
   const conta = await prisma.contaPagar.findUniqueOrThrow({ where: { id } });
 
@@ -133,7 +137,7 @@ export async function pagarContaPagar(
     data: {
       status: quitado ? "PAGO" : "PARCIAL",
       valorPago: totalPago,
-      dataPagamento: new Date(),
+      dataPagamento,
       formaPagamento,
     },
   });
@@ -143,7 +147,7 @@ export async function pagarContaPagar(
     acao: "PAGOU_CONTA_PAGAR",
     entidade: "conta_pagar",
     entidadeId: conta.id,
-      detalhes: `Registrou pagamento de R$ ${valorPago} para ${conta.fornecedor} (${formaPagamento})`,
+      detalhes: `Registrou pagamento de R$ ${valorPago} para ${conta.fornecedor} (${formaPagamento}) em ${formatarDataCalendario(dataPagamento)}`,
   });
 
   return contaAtualizada;
@@ -231,4 +235,111 @@ export async function excluirContaPagar(id: string, usuarioId: string) {
     entidadeId: id,
     detalhes: `Excluiu conta de ${conta.fornecedor} — ${conta.descricao} — R$ ${conta.valor} (venc. ${formatarDataCalendario(conta.vencimento)}, pago R$ ${conta.valorPago})`,
   });
+}
+
+// ───────────── Boleto dividido em 2: alterar as duas partes juntas ─────────────
+
+const SUFIXO_BOLETO = / \(boleto [12]\/2\)$/;
+
+export interface BoletoParte {
+  vencimento: Date;
+  valor: number;
+  codigoBarras?: string | null;
+}
+
+export interface AlterarBoletosInput {
+  fornecedor: string;
+  descricao: string;
+  categoria: string;
+  dataLancamento: Date;
+  observacoes?: string | null;
+  boletos: BoletoParte[]; // 1 = boleto único; 2 = dividido em 2
+}
+
+/**
+ * Altera a conta e decide se ela é 1 boleto ou 2 boletos (com data e valor de cada um).
+ * - 1 → 2: a conta vira a parte 1/2 e é criada a parte 2/2.
+ * - 2 → 1: a parte 2/2 é excluída e a conta fica com o valor informado.
+ * - 2 → 2: atualiza as duas partes.
+ * Só funciona enquanto nenhuma parte tiver pagamento.
+ */
+export async function alterarBoletos(id: string, dados: AlterarBoletosInput, usuarioId: string) {
+  const conta = await prisma.contaPagar.findUnique({ where: { id } });
+  if (!conta) throw new ErroContaPagar("Conta não encontrada.");
+  if (conta.funcionarioId) throw new ErroContaPagar("Salário de funcionário não pode ser dividido em boletos.");
+  if (dados.boletos.length < 1 || dados.boletos.length > 2) throw new ErroContaPagar("Informe 1 ou 2 boletos.");
+
+  const partes = conta.grupoBoleto
+    ? await prisma.contaPagar.findMany({ where: { grupoBoleto: conta.grupoBoleto, status: { not: "CANCELADO" } }, orderBy: [{ vencimento: "asc" }, { descricao: "asc" }] })
+    : [conta];
+  if (partes.some((p) => Number(p.valorPago) > 0 || p.status === "PAGO")) {
+    throw new ErroContaPagar("Uma das partes deste boleto já tem pagamento. Altere só a data/valor da parte em aberto.");
+  }
+
+  const codigos = dados.boletos.map((b) => b.codigoBarras || null).filter(Boolean) as string[];
+  if (new Set(codigos).size !== codigos.length) throw new ErroContaPagar("Os dois boletos estão com o mesmo código de barras.");
+  if (codigos.length) {
+    const outro = await prisma.contaPagar.findFirst({ where: { codigoBarras: { in: codigos }, id: { notIn: partes.map((p) => p.id) } } });
+    if (outro) throw new ErroContaPagar(`Este código de barras já está lançado em outra conta (${outro.fornecedor} — ${outro.descricao}).`);
+  }
+
+  const base = dados.descricao.replace(SUFIXO_BOLETO, "").trim();
+  const comuns = {
+    fornecedor: dados.fornecedor,
+    categoria: dados.categoria,
+    dataLancamento: dados.dataLancamento,
+    observacoes: dados.observacoes || null,
+  };
+  const dividido = dados.boletos.length === 2;
+  const grupoBoleto = dividido ? conta.grupoBoleto ?? randomUUID() : null;
+  const [primeira, segunda] = partes;
+
+  const resultado = await prisma.$transaction(async (tx) => {
+    // Libera os códigos antes (evita conflito de "código já usado" ao trocar entre as partes)
+    await tx.contaPagar.updateMany({ where: { id: { in: partes.map((p) => p.id) } }, data: { codigoBarras: null } });
+    const atualizadas = [];
+    atualizadas.push(
+      await tx.contaPagar.update({
+        where: { id: primeira.id },
+        data: {
+          ...comuns,
+          descricao: dividido ? `${base} (boleto 1/2)` : base,
+          vencimento: dados.boletos[0].vencimento,
+          valor: dados.boletos[0].valor,
+          codigoBarras: dados.boletos[0].codigoBarras || null,
+          grupoBoleto,
+          status: "PENDENTE",
+        },
+      })
+    );
+    if (dividido) {
+      const dadosSegunda = {
+        ...comuns,
+        descricao: `${base} (boleto 2/2)`,
+        vencimento: dados.boletos[1].vencimento,
+        valor: dados.boletos[1].valor,
+        codigoBarras: dados.boletos[1].codigoBarras || null,
+        grupoBoleto,
+        status: "PENDENTE" as const,
+      };
+      atualizadas.push(
+        segunda
+          ? await tx.contaPagar.update({ where: { id: segunda.id }, data: dadosSegunda })
+          : await tx.contaPagar.create({ data: dadosSegunda })
+      );
+    } else if (segunda) {
+      await tx.contaPagar.delete({ where: { id: segunda.id } });
+    }
+    return atualizadas;
+  });
+
+  const resumo = resultado.map((c) => `R$ ${Number(c.valor).toFixed(2)} venc. ${formatarDataCalendario(c.vencimento)}`).join(" + ");
+  await registrarLog({
+    usuarioId,
+    acao: "ALTEROU_CONTA_PAGAR",
+    entidade: "conta_pagar",
+    entidadeId: id,
+    detalhes: `Alterou ${conta.fornecedor} — ${base}: antes ${partes.length} boleto(s) (${partes.map((p) => `R$ ${Number(p.valor).toFixed(2)} venc. ${formatarDataCalendario(p.vencimento)}`).join(" + ")}); agora ${resultado.length} boleto(s) (${resumo})`,
+  });
+  return resultado;
 }

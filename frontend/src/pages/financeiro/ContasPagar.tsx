@@ -18,6 +18,7 @@ interface ContaPagar {
   salarioBruto?: string | number | null;
   descontos?: { id: string; tipo: string; data: string; valor: string | number; descricao: string | null }[];
   anexos?: Anexo[];
+  grupoBoleto?: string | null;
   fornecedor: string;
   descricao: string;
   categoria: string;
@@ -125,7 +126,7 @@ export function ContasPagar() {
     {visao === "lista" && <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{visiveis.map((conta) => <CartaoConta key={conta.id} conta={conta} onPagar={() => acoes.onPagar(conta)} onAlterar={() => acoes.onAlterar(conta)} onExcluir={() => acoes.onExcluir(conta)} onMudou={carregar} />)}</div>}
     {visao === "lista" && visiveis.length === 0 && <Card className="text-center py-12"><p className="font-display text-2xl uppercase text-ink">Nenhuma conta encontrada</p><p className="text-muted text-sm mt-2">Ajuste os filtros ou lance uma nova conta.</p></Card>}
     {contaPagamento && <ModalPagamento conta={contaPagamento} onFechar={() => setContaPagamento(null)} onAtualizado={atualizarConta} />}
-    {contaEdicao && <ModalAlterarConta conta={contaEdicao} onFechar={() => setContaEdicao(null)} onAtualizado={atualizarConta} />}
+    {contaEdicao && <ModalAlterarConta conta={contaEdicao} todas={contas} onFechar={() => setContaEdicao(null)} onAtualizado={atualizarConta} />}
     {contaExclusao && <ModalExcluirConta conta={contaExclusao} onFechar={() => setContaExclusao(null)} onExcluido={() => { setContas((atuais) => atuais.filter((c) => c.id !== contaExclusao.id)); setContaExclusao(null); }} />}
   </div>;
 }
@@ -181,11 +182,12 @@ function FormularioContaPagar({ onCancelar, onCriado }: { onCancelar: () => void
 function ModalPagamento({ conta, onFechar, onAtualizado }: { conta: ContaPagar; onFechar: () => void; onAtualizado: (conta: ContaPagar) => void }) {
   const saldo = Number(conta.saldo ?? Number(conta.valor) - Number(conta.valorPago || 0)); const [valorPago, setValorPago] = useState(String(saldo)); const [formaPagamento, setFormaPagamento] = useState(FORMAS_PAGAMENTO[1]); const [erro, setErro] = useState(""); const [enviando, setEnviando] = useState(false);
   const [comprovante, setComprovante] = useState<File | null>(null); const [pagoSemArquivo, setPagoSemArquivo] = useState<ContaPagar | null>(null);
+  const [dataPagamento, setDataPagamento] = useState(dataLocalISO());
   async function salvar(evento: FormEvent) {
     evento.preventDefault(); setErro(""); setEnviando(true);
     try {
       // Se o pagamento já foi salvo e só o arquivo falhou, tenta enviar só o arquivo de novo
-      const atualizada = pagoSemArquivo ?? await api<ContaPagar>(`/contas-pagar/${conta.id}/pagar`, { method: "PATCH", body: { valorPago: Number(valorPago), formaPagamento } });
+      const atualizada = pagoSemArquivo ?? await api<ContaPagar>(`/contas-pagar/${conta.id}/pagar`, { method: "PATCH", body: { valorPago: Number(valorPago), formaPagamento, dataPagamento } });
       if (comprovante) {
         try { await enviarAnexo(conta.id, conta.funcionarioId ? "RECIBO_ASSINADO" : "COMPROVANTE", comprovante); }
         catch (e) { setPagoSemArquivo(atualizada); setErro(`Pagamento registrado, mas o arquivo não foi enviado: ${e instanceof ErroApi ? e.message : "tente de novo"}.`); return; }
@@ -193,7 +195,7 @@ function ModalPagamento({ conta, onFechar, onAtualizado }: { conta: ContaPagar; 
       onAtualizado(atualizada);
     } catch (e) { setErro(e instanceof ErroApi ? e.message : "Erro ao registrar pagamento."); } finally { setEnviando(false); }
   }
-  return <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 sm:items-center sm:px-4"><Card className="max-h-[94vh] w-full max-w-lg overflow-y-auto rounded-b-none sm:rounded-b-card"><div className="flex items-start justify-between"><div><p className="font-display text-2xl uppercase text-ink">Registrar pagamento</p><p className="text-sm text-muted mt-1">{conta.fornecedor} · {conta.descricao}</p></div><button type="button" onClick={onFechar} className="text-2xl text-muted">×</button></div><div className="mt-5 grid grid-cols-2 gap-3 rounded-lg bg-background p-4"><Info label="Valor total" valor={formatarMoeda(conta.valor)} /><Info label="Saldo atual" valor={formatarMoeda(saldo)} /></div><form onSubmit={salvar} className="mt-5 flex flex-col gap-4"><Input label="Valor pago agora (R$)" type="number" min="0.01" max={saldo} step="0.01" value={valorPago} onChange={(e) => setValorPago(e.target.value)} required /><div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-ink">Forma de pagamento</label><select value={formaPagamento} onChange={(e) => setFormaPagamento(e.target.value)} className="h-11 rounded-lg border border-border bg-white px-3.5 text-sm">{FORMAS_PAGAMENTO.map((forma) => <option key={forma}>{forma}</option>)}</select></div><CampoArquivo arquivo={comprovante} onChange={setComprovante} rotulo={conta.funcionarioId ? "Recibo assinado (opcional)" : "Comprovante do pagamento (opcional)"} dica={conta.funcionarioId ? "Foto do recibo assinado pelo funcionário" : "Foto do comprovante ou PDF do banco"} />{erro && <p className="text-sm text-danger">{erro}</p>}<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variante="secundaria" onClick={pagoSemArquivo ? () => onAtualizado(pagoSemArquivo) : onFechar}>{pagoSemArquivo ? "Fechar sem o arquivo" : "Cancelar"}</Button><Button type="submit" disabled={enviando}>{enviando ? "Salvando..." : pagoSemArquivo ? "Enviar o arquivo de novo" : "Confirmar pagamento"}</Button></div></form></Card></div>;
+  return <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 sm:items-center sm:px-4"><Card className="max-h-[94vh] w-full max-w-lg overflow-y-auto rounded-b-none sm:rounded-b-card"><div className="flex items-start justify-between"><div><p className="font-display text-2xl uppercase text-ink">Registrar pagamento</p><p className="text-sm text-muted mt-1">{conta.fornecedor} · {conta.descricao}</p></div><button type="button" onClick={onFechar} className="text-2xl text-muted">×</button></div><div className="mt-5 grid grid-cols-2 gap-3 rounded-lg bg-background p-4"><Info label="Valor total" valor={formatarMoeda(conta.valor)} /><Info label="Saldo atual" valor={formatarMoeda(saldo)} /></div><form onSubmit={salvar} className="mt-5 flex flex-col gap-4"><Input label="Valor pago agora (R$)" type="number" min="0.01" max={saldo} step="0.01" value={valorPago} onChange={(e) => setValorPago(e.target.value)} required /><div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-ink">Forma de pagamento</label><select value={formaPagamento} onChange={(e) => setFormaPagamento(e.target.value)} className="h-11 rounded-lg border border-border bg-white px-3.5 text-sm">{FORMAS_PAGAMENTO.map((forma) => <option key={forma}>{forma}</option>)}</select></div><div><Input label="Data do pagamento" type="date" value={dataPagamento} onChange={(e) => setDataPagamento(e.target.value)} required /><p className="mt-1 text-xs text-muted">{dataPagamento > dataLocalISO() ? "Pagamento agendado para uma data futura." : dataPagamento < dataLocalISO() ? "Pagamento feito num dia anterior." : "Pago hoje."} Pode ser qualquer dia.</p></div><CampoArquivo arquivo={comprovante} onChange={setComprovante} rotulo={conta.funcionarioId ? "Recibo assinado (opcional)" : "Comprovante do pagamento (opcional)"} dica={conta.funcionarioId ? "Foto do recibo assinado pelo funcionário" : "Foto do comprovante ou PDF do banco"} />{erro && <p className="text-sm text-danger">{erro}</p>}<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variante="secundaria" onClick={pagoSemArquivo ? () => onAtualizado(pagoSemArquivo) : onFechar}>{pagoSemArquivo ? "Fechar sem o arquivo" : "Cancelar"}</Button><Button type="submit" disabled={enviando}>{enviando ? "Salvando..." : pagoSemArquivo ? "Enviar o arquivo de novo" : "Confirmar pagamento"}</Button></div></form></Card></div>;
 }
 
 function ModalBase({ titulo, subtitulo, onFechar, children, largura = "max-w-lg" }: { titulo: string; subtitulo?: string; onFechar: () => void; children: React.ReactNode; largura?: string }) {
@@ -205,44 +207,131 @@ function ModalBase({ titulo, subtitulo, onFechar, children, largura = "max-w-lg"
   </div>;
 }
 
-function ModalAlterarConta({ conta, onFechar, onAtualizado }: { conta: ContaPagar; onFechar: () => void; onAtualizado: (conta: ContaPagar) => void }) {
+const SUFIXO_BOLETO = / \(boleto [12]\/2\)$/;
+const somarDias = (iso: string, dias: number) => { const d = new Date(`${iso}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + dias); return d.toISOString().slice(0, 10); };
+
+function ModalAlterarConta({ conta, todas, onFechar, onAtualizado }: { conta: ContaPagar; todas: ContaPagar[]; onFechar: () => void; onAtualizado: (conta: ContaPagar) => void }) {
+  // Partes do mesmo boleto (quando dividido em 2), em ordem de vencimento
+  const partes = useMemo(() => {
+    if (!conta.grupoBoleto) return [conta];
+    const grupo = todas.filter((c) => c.grupoBoleto === conta.grupoBoleto && c.status !== "CANCELADO");
+    return (grupo.length ? grupo : [conta]).sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.descricao.localeCompare(b.descricao));
+  }, [conta, todas]);
+  const temPagamento = partes.some((p) => Number(p.valorPago || 0) > 0 || p.status === "PAGO");
+  const podeDividir = !conta.funcionarioId && !temPagamento;
+  const [p1, p2] = partes;
+
   const [fornecedor, setFornecedor] = useState(conta.fornecedor);
-  const [descricao, setDescricao] = useState(conta.descricao);
+  const [descricao, setDescricao] = useState(podeDividir ? conta.descricao.replace(SUFIXO_BOLETO, "") : conta.descricao);
   const [categoria, setCategoria] = useState(conta.categoria);
-  const [valor, setValor] = useState(String(Number(conta.valor)));
   const [dataLancamento, setDataLancamento] = useState(conta.dataLancamento.slice(0, 10));
-  const [vencimento, setVencimento] = useState(conta.vencimento.slice(0, 10));
   const [observacoes, setObservacoes] = useState(conta.observacoes ?? "");
-  const [codigoBarras, setCodigoBarras] = useState(conta.codigoBarras ?? "");
+  const [quantidade, setQuantidade] = useState<1 | 2>(partes.length === 2 ? 2 : 1);
+  const totalAtual = partes.reduce((t, p) => t + Number(p.valor), 0);
+  const [boletos, setBoletos] = useState(() =>
+    partes.length === 2 && podeDividir
+      ? [p1, p2].map((p) => ({ vencimento: p.vencimento.slice(0, 10), valor: String(Number(p.valor)), codigoBarras: p.codigoBarras ?? "" }))
+      : [{ vencimento: conta.vencimento.slice(0, 10), valor: String(Number(conta.valor)), codigoBarras: conta.codigoBarras ?? "" }]
+  );
   const [confirmarDuplicado, setConfirmarDuplicado] = useState(false);
-  const duplicidade = useDuplicidade("/contas-pagar/duplicadas", { codigoBarras: digitosDe(codigoBarras), fornecedor, valor: Number(valor) || undefined, vencimento, ignorarId: conta.id });
+  const duplicidade = useDuplicidade("/contas-pagar/duplicadas", { codigoBarras: digitosDe(boletos[0].codigoBarras), fornecedor, valor: Number(boletos[0].valor) || undefined, vencimento: boletos[0].vencimento, ignorarId: conta.id });
   const [erro, setErro] = useState("");
   const [enviando, setEnviando] = useState(false);
   const jaPago = Number(conta.valorPago || 0);
 
+  function mudarBoleto(i: number, campo: "vencimento" | "valor" | "codigoBarras", valor: string) {
+    setBoletos((atual) => atual.map((b, j) => (j === i ? { ...b, [campo]: valor } : b)));
+  }
+
+  function escolherQuantidade(q: 1 | 2) {
+    if (q === quantidade) return;
+    setQuantidade(q);
+    setBoletos((atual) => {
+      const total = atual.reduce((t, b) => t + (Number(b.valor) || 0), 0);
+      if (q === 2) {
+        const cent = Math.round(total * 100);
+        const segunda = Math.floor(cent / 2);
+        return [
+          { ...atual[0], valor: String((cent - segunda) / 100) },
+          { vencimento: somarDias(atual[0].vencimento, 30), valor: String(segunda / 100), codigoBarras: "" },
+        ];
+      }
+      return [{ ...atual[0], valor: String(Math.round(total * 100) / 100) }];
+    });
+  }
+
+  const totalNovo = boletos.reduce((t, b) => t + (Number(b.valor) || 0), 0);
+  const usarBoletos = podeDividir && (quantidade === 2 || partes.length === 2);
+
   async function salvar(evento: FormEvent, ignorarAviso = false) {
     evento.preventDefault(); setErro(""); setEnviando(true);
     try {
-      const atualizada = await api<ContaPagar>(`/contas-pagar/${conta.id}`, { method: "PUT", body: { fornecedor, descricao, categoria, valor: Number(valor), dataLancamento, vencimento, observacoes: observacoes || null, codigoBarras: codigoBarras || null, ignorarAviso } });
-      onAtualizado(atualizada);
+      if (usarBoletos) {
+        if (quantidade === 2 && boletos[1].vencimento < boletos[0].vencimento) { setErro("A data do 2º boleto precisa ser depois da do 1º."); return; }
+        const r = await api<ContaPagar[]>(`/contas-pagar/${conta.id}/boletos`, {
+          method: "PUT",
+          body: {
+            fornecedor, descricao, categoria, dataLancamento, observacoes: observacoes || null,
+            boletos: boletos.slice(0, quantidade).map((b) => ({ vencimento: b.vencimento, valor: Number(b.valor), codigoBarras: b.codigoBarras || null })),
+          },
+        });
+        onAtualizado(r[0]);
+      } else {
+        const b = boletos[0];
+        const atualizada = await api<ContaPagar>(`/contas-pagar/${conta.id}`, { method: "PUT", body: { fornecedor, descricao, categoria, valor: Number(b.valor), dataLancamento, vencimento: b.vencimento, observacoes: observacoes || null, codigoBarras: b.codigoBarras || null, ignorarAviso } });
+        onAtualizado(atualizada);
+      }
     } catch (e) { setConfirmarDuplicado(podeConfirmarDuplicado(e)); setErro(e instanceof ErroApi ? e.message : "Erro ao alterar a conta."); }
     finally { setEnviando(false); }
   }
+
+  const botaoQtd = (q: 1 | 2, rotulo: string) => (
+    <button type="button" onClick={() => escolherQuantidade(q)} aria-pressed={quantidade === q} className={`h-11 rounded-lg px-3 text-sm font-semibold ${quantidade === q ? "bg-ink text-white" : "text-ink hover:bg-background"}`}>{rotulo}</button>
+  );
 
   return <ModalBase titulo="Alterar conta" subtitulo={`${conta.fornecedor} · ${conta.descricao}`} onFechar={onFechar} largura="max-w-2xl">
     <form onSubmit={salvar} className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
       <CampoFornecedor valor={fornecedor} onMudar={setFornecedor} onEscolher={(f) => setCategoria(f.categoriaPadrao)} />
       <Input label="Descrição" value={descricao} onChange={(e) => setDescricao(e.target.value)} required />
       <div className="flex flex-col gap-1.5"><label htmlFor="alterar-categoria" className="text-sm font-medium text-ink">Tipo de conta (categoria)</label><select id="alterar-categoria" value={categoria} onChange={(e) => setCategoria(e.target.value)} className="h-11 rounded-lg border border-border bg-white px-3.5 text-sm">{CATEGORIAS.map((c) => <option key={c}>{c}</option>)}</select></div>
-      <Input label="Valor (R$)" type="number" min={Math.max(jaPago, 0.01)} step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} required />
       <Input label="Data do lançamento" type="date" value={dataLancamento} onChange={(e) => setDataLancamento(e.target.value)} required />
-      <Input label="Data de vencimento" type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} required />
+
+      <div className="sm:col-span-2 rounded-lg border border-border p-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm font-semibold text-ink">Boleto</p>
+          {podeDividir ? (
+            <div className="grid grid-cols-2 rounded-lg border border-border bg-white p-1" role="group" aria-label="Quantidade de boletos">
+              {botaoQtd(1, "Um boleto")}
+              {botaoQtd(2, "Dividido em 2")}
+            </div>
+          ) : partes.length === 2 ? (
+            <p className="text-xs text-muted">Boleto dividido em 2 · uma parte já tem pagamento, então só dá para alterar esta parte.</p>
+          ) : null}
+        </div>
+        <div className="mt-3 flex flex-col gap-3">
+          {boletos.slice(0, usarBoletos ? quantidade : 1).map((b, i) => (
+            <div key={i} className="grid grid-cols-1 gap-3 rounded-lg bg-background p-3 sm:grid-cols-[1fr_1fr]">
+              {usarBoletos && quantidade === 2 && <p className="text-xs font-bold uppercase tracking-wide text-primary sm:col-span-2">{i === 0 ? "1º boleto" : "2º boleto"}</p>}
+              <Input label={usarBoletos && quantidade === 2 ? `Vencimento do ${i + 1}º boleto` : "Data de vencimento"} type="date" value={b.vencimento} onChange={(e) => mudarBoleto(i, "vencimento", e.target.value)} required />
+              <Input label="Valor (R$)" type="number" min={!usarBoletos ? Math.max(jaPago, 0.01) : 0.01} step="0.01" value={b.valor} onChange={(e) => mudarBoleto(i, "valor", e.target.value)} required />
+              <div className="sm:col-span-2"><Input label="Código de barras / linha digitável (opcional)" inputMode="numeric" value={b.codigoBarras} onChange={(e) => mudarBoleto(i, "codigoBarras", e.target.value)} /></div>
+            </div>
+          ))}
+        </div>
+        {usarBoletos && (
+          <p className="mt-2 text-xs text-muted">
+            Total: <strong className="text-ink">{formatarMoeda(totalNovo)}</strong>
+            {Math.abs(totalNovo - totalAtual) > 0.009 && <> · antes era {formatarMoeda(totalAtual)}</>}
+            {quantidade === 1 && partes.length === 2 && <> · o 2º boleto será excluído e tudo fica num boleto só</>}
+          </p>
+        )}
+      </div>
+
       <div className="sm:col-span-2"><label htmlFor="alterar-obs" className="text-sm font-medium text-ink">Observações</label><textarea id="alterar-obs" value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} className="mt-1.5 w-full rounded-lg border border-border bg-white px-3.5 py-3 text-sm outline-none focus:border-primary" /></div>
       {jaPago > 0 && <p className="rounded-lg bg-background px-3 py-2 text-xs text-muted sm:col-span-2">Já foi pago {formatarMoeda(jaPago)} desta conta, então o valor não pode ficar menor que isso.</p>}
-      <div className="sm:col-span-2"><Input label="Código de barras / linha digitável (opcional)" inputMode="numeric" value={codigoBarras} onChange={(e) => setCodigoBarras(e.target.value)} /></div>
-      <div className="sm:col-span-2"><AvisoDuplicidade resultado={duplicidade} tipo="outra conta" /></div>
+      {!usarBoletos && <div className="sm:col-span-2"><AvisoDuplicidade resultado={duplicidade} tipo="outra conta" /></div>}
       {erro && <div className="sm:col-span-2"><p role="alert" className="text-sm text-danger">{erro}</p>{confirmarDuplicado && <Button type="button" variante="secundaria" className="mt-2" disabled={enviando} onClick={(e) => salvar(e as unknown as FormEvent, true)}>É outra conta — salvar mesmo assim</Button>}</div>}
-      <div className="flex flex-col-reverse gap-2 sm:col-span-2 sm:flex-row sm:justify-end"><Button type="button" variante="secundaria" onClick={onFechar}>Cancelar</Button><Button type="submit" disabled={enviando || duplicidade.bloqueio.length > 0}>{enviando ? "Salvando..." : "Salvar alterações"}</Button></div>
+      <div className="flex flex-col-reverse gap-2 sm:col-span-2 sm:flex-row sm:justify-end"><Button type="button" variante="secundaria" onClick={onFechar}>Cancelar</Button><Button type="submit" disabled={enviando || (!usarBoletos && duplicidade.bloqueio.length > 0)}>{enviando ? "Salvando..." : "Salvar alterações"}</Button></div>
     </form>
   </ModalBase>;
 }

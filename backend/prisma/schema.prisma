@@ -303,8 +303,11 @@ model ContaPagar {
   salarioBruto   Decimal?     @map("salario_bruto") @db.Decimal(12, 2)
   descontos      DescontoFuncionario[]
   anexos         AnexoConta[]
+  // Boleto dividido em 2: as duas partes têm o mesmo grupo
+  grupoBoleto    String?      @map("grupo_boleto")
 
   @@unique([funcionarioId, vencimento])
+  @@index([grupoBoleto])
   @@map("contas_pagar")
 }
 

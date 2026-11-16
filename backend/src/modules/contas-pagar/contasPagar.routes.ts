@@ -4,6 +4,7 @@ import { z } from "zod";
 import { autenticar } from "../../middlewares/autenticacao";
 import { somentePapel } from "../../middlewares/permissoes";
 import {
+  alterarBoletos,
   criarContaPagar,
   criarContaPagarDividida,
   alterarContaPagar,
@@ -120,6 +121,12 @@ contasPagarRouter.post("/", async (req, res) => {
 const pagarSchema = z.object({
   valorPago: z.number().positive(),
   formaPagamento: z.string().min(1),
+  // Dia em que o pagamento foi (ou será) feito — pode ser antes ou depois de hoje
+  dataPagamento: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .transform((v) => (v ? new Date(`${v}T15:00:00Z`) : undefined)),
 });
 
 contasPagarRouter.patch("/:id/pagar", async (req, res) => {
@@ -133,7 +140,8 @@ contasPagarRouter.patch("/:id/pagar", async (req, res) => {
       req.params.id,
       validacao.data.valorPago,
       validacao.data.formaPagamento,
-      req.usuario!.id
+      req.usuario!.id,
+      validacao.data.dataPagamento
     );
     return res.json(conta);
   } catch (erro) {
@@ -196,5 +204,31 @@ contasPagarRouter.delete("/:id", async (req, res) => {
     if (erro instanceof ErroContaPagar) return res.status(400).json({ erro: erro.message });
     console.error(erro);
     return res.status(500).json({ erro: "Erro interno ao excluir a conta." });
+  }
+});
+
+// PUT /contas-pagar/:id/boletos — 1 boleto ou dividido em 2 (data, valor e código de cada um)
+const alterarBoletosSchema = z.object({
+  fornecedor: z.string().min(2),
+  descricao: z.string().min(2),
+  categoria: z.enum(CATEGORIAS_CONTA),
+  dataLancamento: z.coerce.date(),
+  observacoes: z.string().nullable().optional(),
+  boletos: z
+    .array(z.object({ vencimento: z.coerce.date(), valor: z.number().positive("Informe o valor de cada boleto."), codigoBarras: codigoBarrasSchema }))
+    .min(1)
+    .max(2),
+});
+
+contasPagarRouter.put("/:id/boletos", async (req, res) => {
+  const validacao = alterarBoletosSchema.safeParse(req.body);
+  if (!validacao.success) return res.status(400).json({ erro: validacao.error.issues[0].message });
+  try {
+    return res.json(await alterarBoletos(req.params.id, validacao.data, req.usuario!.id));
+  } catch (erro) {
+    if (erro instanceof ErroContaPagar) return res.status(400).json({ erro: erro.message });
+    if ((erro as { code?: string })?.code === "P2002") return res.status(409).json({ erro: "Este código de barras já está lançado em outra conta." });
+    console.error(erro);
+    return res.status(500).json({ erro: "Erro interno ao alterar os boletos." });
   }
 });
