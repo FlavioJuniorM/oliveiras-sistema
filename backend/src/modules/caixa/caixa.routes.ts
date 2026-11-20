@@ -215,3 +215,26 @@ caixaRouter.delete("/lancamentos/:id", async (req, res) => {
   });
   return res.status(204).end();
 });
+
+/**
+ * GET /caixa/contas-pagas?mes=2026-11
+ * Contas a pagar pagas no mês (pelo dia do pagamento), para o saldo líquido do caixa.
+ */
+caixaRouter.get("/contas-pagas", async (req, res) => {
+  const mes = String(req.query.mes ?? "");
+  if (!/^\d{4}-\d{2}$/.test(mes)) return res.status(400).json({ erro: "Informe o mês no formato AAAA-MM." });
+  const [ano, numeroMes] = mes.split("-").map(Number);
+  const ultimoDia = new Date(Date.UTC(ano, numeroMes, 0)).getUTCDate();
+  const { inicio, fim } = periodoNaLoja(`${mes}-01`, `${mes}-${String(ultimoDia).padStart(2, "0")}`);
+  const contas = await prisma.contaPagar.findMany({
+    where: { dataPagamento: { gte: inicio, lte: fim }, status: { in: ["PAGO", "PARCIAL"] }, valorPago: { gt: 0 } },
+    select: { valorPago: true, funcionarioId: true },
+  });
+  const total = contas.reduce((t, c) => t + Number(c.valorPago), 0);
+  const salarios = contas.filter((c) => c.funcionarioId).reduce((t, c) => t + Number(c.valorPago), 0);
+  return res.json({
+    total: Math.round(total * 100) / 100,
+    quantidade: contas.length,
+    salarios: Math.round(salarios * 100) / 100,
+  });
+});

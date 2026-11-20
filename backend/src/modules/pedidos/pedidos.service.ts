@@ -815,9 +815,15 @@ export async function finalizarConferenciaPedido(
  */
 export async function registrarPagamento(
   pedidoId: string,
-  input: PagamentoImediatoInput,
+  input: PagamentoImediatoInput & { dataRecebimento?: string },
   usuarioId: string
 ) {
+  // Recebimento em dia anterior: registra ao meio-dia (Brasília) daquele dia, para entrar no caixa/relatório do dia certo
+  let criadoEm: Date | undefined;
+  if (input.dataRecebimento && input.dataRecebimento !== dataNaLoja(new Date())) {
+    if (input.dataRecebimento > dataNaLoja(new Date())) throw new ErroPedido("A data do recebimento não pode ser no futuro.");
+    criadoEm = new Date(`${input.dataRecebimento}T15:00:00Z`);
+  }
   const pedido = await prisma.pedido.findUnique({
     where: { id: pedidoId },
     include: { contaReceber: true },
@@ -838,7 +844,7 @@ export async function registrarPagamento(
 
   const resultado = await prisma.$transaction(async (tx) => {
     await tx.pagamento.create({
-      data: { pedidoId, forma: input.forma, valor: input.valor, usuarioId },
+      data: { pedidoId, forma: input.forma, valor: input.valor, usuarioId, ...(criadoEm ? { criadoEm } : {}) },
     });
 
     let novoStatusPedido: "PENDENTE" | "PARCIALMENTE_PAGO" | "PAGO" = "PARCIALMENTE_PAGO";
@@ -884,7 +890,7 @@ export async function registrarPagamento(
     acao: "REGISTROU_PAGAMENTO",
     entidade: "pedido",
     entidadeId: pedidoId,
-    detalhes: `Registrou pagamento de R$ ${input.valor} (${input.forma}) no pedido ${pedido.numero}`,
+    detalhes: `Registrou pagamento de R$ ${input.valor} (${input.forma}) no pedido ${pedido.numero}${input.dataRecebimento ? ` — recebido em ${formatarDataCalendario(new Date(`${input.dataRecebimento}T15:00:00Z`))}` : ""}`,
   });
 
   if (resultado.statusPagamento === "PAGO") {

@@ -56,6 +56,7 @@ export function LancamentosCaixa() {
   const [diaSelecionado, setDiaSelecionado] = useState(hoje);
   const [lancamentos, setLancamentos] = useState<LancamentoCaixa[]>([]);
   const [entregues, setEntregues] = useState<PedidosDoDiaCaixa[]>([]);
+  const [contasPagas, setContasPagas] = useState<{ total: number; quantidade: number; salarios: number }>({ total: 0, quantidade: 0, salarios: 0 });
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [formulario, setFormulario] = useState<{ lancamento?: LancamentoCaixa; data: string } | null>(null);
@@ -68,12 +69,14 @@ export function LancamentosCaixa() {
     setCarregando(true);
     setErro("");
     try {
-      const [manuais, pedidosEntregues] = await Promise.all([
+      const [manuais, pedidosEntregues, pagas] = await Promise.all([
         api<LancamentoCaixa[]>(`/caixa/lancamentos?mes=${chaveMes}`),
         api<PedidosDoDiaCaixa[]>(`/caixa/pedidos-entregues?mes=${chaveMes}`),
+        api<{ total: number; quantidade: number; salarios: number }>(`/caixa/contas-pagas?mes=${chaveMes}`).catch(() => ({ total: 0, quantidade: 0, salarios: 0 })),
       ]);
       setLancamentos(manuais);
       setEntregues(pedidosEntregues);
+      setContasPagas(pagas);
     } catch (e) {
       setErro(e instanceof ErroApi ? e.message : "Não foi possível carregar os lançamentos do caixa.");
     } finally {
@@ -190,13 +193,30 @@ export function LancamentosCaixa() {
               <p className="text-xs text-muted">Gastos / sangrias</p>
               <p className="whitespace-nowrap font-display text-lg text-danger sm:text-xl">− {formatarMoeda(totaisMes.gastos)}</p>
             </div>
-            <div className="rounded-lg bg-success/[0.09] px-3 py-2.5">
-              <p className="text-xs text-muted">Total de entradas</p>
-              <p className="whitespace-nowrap font-display text-lg text-success sm:text-xl">{formatarMoeda(totaisMes.total)}</p>
+            <div className="rounded-lg bg-danger/[0.07] px-3 py-2.5">
+              <p className="text-xs text-muted">Contas pagas no mês</p>
+              <p className="whitespace-nowrap font-display text-lg text-danger sm:text-xl">− {formatarMoeda(contasPagas.total)}</p>
+              <p className="text-[11px] text-muted">{contasPagas.quantidade} conta(s){contasPagas.salarios > 0 ? ` · ${formatarMoeda(contasPagas.salarios)} de salários` : ""}</p>
             </div>
-            <div className="col-span-2 rounded-lg bg-ink px-3 py-2.5 text-white sm:col-span-4">
-              <p className="text-xs text-white/70">Saldo do mês (entradas − gastos)</p>
-              <p className="whitespace-nowrap font-display text-xl sm:text-2xl">{formatarMoeda(totaisMes.total - totaisMes.gastos)}</p>
+            <div className="col-span-2 rounded-lg border border-border bg-white px-3 py-3 sm:col-span-4">
+              <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
+                <div className="flex items-baseline justify-between gap-2 sm:block">
+                  <p className="text-xs text-muted">Total de entradas</p>
+                  <p className="whitespace-nowrap font-display text-lg text-success sm:text-xl">{formatarMoeda(totaisMes.total)}</p>
+                </div>
+                <div className="flex items-baseline justify-between gap-2 sm:block">
+                  <p className="text-xs text-muted">− Sangrias</p>
+                  <p className="whitespace-nowrap font-display text-lg text-danger sm:text-xl">− {formatarMoeda(totaisMes.gastos)}</p>
+                </div>
+                <div className="flex items-baseline justify-between gap-2 sm:block">
+                  <p className="text-xs text-muted">− Contas pagas</p>
+                  <p className="whitespace-nowrap font-display text-lg text-danger sm:text-xl">− {formatarMoeda(contasPagas.total)}</p>
+                </div>
+              </div>
+            </div>
+            <div className="col-span-2 rounded-lg bg-ink px-3 py-3 text-white sm:col-span-4">
+              <p className="text-xs text-white/70">Valor líquido do mês (entradas − sangrias − contas pagas)</p>
+              <p className={`whitespace-nowrap font-display text-2xl sm:text-3xl ${totaisMes.total - totaisMes.gastos - contasPagas.total < 0 ? "text-red-300" : ""}`}>{formatarMoeda(totaisMes.total - totaisMes.gastos - contasPagas.total)}</p>
             </div>
           </div>
           <p className="mt-2 text-xs text-muted">

@@ -264,6 +264,8 @@ pedidosRouter.post("/:id/finalizar-conferencia", async (req, res) => {
 const pagamentoSchema = z.object({
   forma: formaPagamentoImediata,
   valor: z.number().positive(),
+  // Dia em que o cliente pagou (Contas a Receber). Sem ele, vale agora.
+  dataRecebimento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data do recebimento inválida.").optional(),
 });
 
 // Quitação total ou parcial posterior de um pedido a prazo (módulo Contas a Receber)

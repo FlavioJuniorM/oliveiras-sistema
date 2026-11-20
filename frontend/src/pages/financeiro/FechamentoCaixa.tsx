@@ -89,8 +89,9 @@ export function FechamentoCaixa() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div><p className="text-sm text-muted">Tudo o que foi recebido no dia, por forma de pagamento</p></div>
+      <LancamentosCaixa />
+      <div className="mt-4 flex flex-col gap-3 border-t border-border pt-6 sm:flex-row sm:items-end sm:justify-between">
+        <div><p className="font-display text-2xl uppercase tracking-wide text-ink">Fechamento do delivery</p><p className="text-sm text-muted">Comandas do sistema: tudo o que foi recebido no dia, por forma de pagamento</p></div>
         <div className="flex items-end gap-2"><Input label="Dia" type="date" value={data} max={dataLocalISO()} onChange={(e) => e.target.value && setData(e.target.value)} /><Button variante="secundaria" disabled={!caixa} onClick={imprimir}>Imprimir</Button></div>
       </div>
       {erro && <p className="rounded-lg bg-danger/10 px-4 py-3 text-sm text-danger">{erro}</p>}
@@ -109,7 +110,6 @@ export function FechamentoCaixa() {
           {caixa.recebimentos.length === 0 ? <p className="px-5 py-6 text-sm text-muted">Nenhum recebimento neste dia.</p> : <div className="mt-3 overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-y border-border bg-background text-left text-xs uppercase tracking-wide text-muted"><th className="px-5 py-2">Hora</th><th className="px-3 py-2">Comanda</th><th className="px-3 py-2">Cliente</th><th className="px-3 py-2">Forma</th><th className="px-3 py-2">Recebido por</th><th className="px-5 py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-border">{caixa.recebimentos.map((r) => <tr key={r.id}><td className="px-5 py-2.5 text-muted">{hora(r.criadoEm)}</td><td className="px-3 py-2.5 font-semibold text-ink">{r.pedido}</td><td className="px-3 py-2.5 text-ink">{r.cliente}</td><td className="px-3 py-2.5 text-ink">{NOMES_FORMA[r.forma] || r.forma}</td><td className="px-3 py-2.5 text-muted">{r.recebidoPor}</td><td className="px-5 py-2.5 text-right font-semibold text-ink">{formatarMoeda(r.valor)}</td></tr>)}</tbody></table></div>}
         </Card>
       </>}
-      <LancamentosCaixa />
     </div>
   );
 }
