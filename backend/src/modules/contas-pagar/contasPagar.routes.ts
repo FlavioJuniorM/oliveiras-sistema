@@ -7,6 +7,8 @@ import {
   alterarBoletos,
   criarContaPagar,
   criarContaPagarDividida,
+  definirJuros,
+  definirRecorrencia,
   alterarContaPagar,
   excluirContaPagar,
   excluirLancamentoContaPagar,
@@ -69,8 +71,12 @@ const criarContaPagarSchema = z.object({
   // Código de barras / linha digitável (opcional) — só os números são guardados
   codigoBarras: codigoBarrasSchema,
   codigoBarras2: codigoBarrasSchema,
+  // Conta que chega todo mês (água, luz, internet, aluguel): a do mês seguinte é lançada sozinha
+  recorrente: z.boolean().optional(),
 }).refine((d) => !d.segundoVencimento || d.segundoVencimento > d.vencimento, {
   message: "A segunda data do boleto precisa ser depois da primeira.",
+}).refine((d) => !(d.segundoVencimento && d.recorrente), {
+  message: "Boleto dividido em 2 não pode ser recorrente.",
 });
 
 // Verificação de duplicados enquanto digita
@@ -127,6 +133,8 @@ const pagarSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional()
     .transform((v) => (v ? new Date(`${v}T15:00:00Z`) : undefined)),
+  // Juros / multa cobrados por pagar atrasado (fora do valor da conta)
+  juros: z.number().min(0).max(1_000_000).optional(),
 });
 
 contasPagarRouter.patch("/:id/pagar", async (req, res) => {
@@ -141,13 +149,40 @@ contasPagarRouter.patch("/:id/pagar", async (req, res) => {
       validacao.data.valorPago,
       validacao.data.formaPagamento,
       req.usuario!.id,
-      validacao.data.dataPagamento
+      validacao.data.dataPagamento,
+      validacao.data.juros ?? 0
     );
     return res.json(conta);
   } catch (erro) {
     if (erro instanceof ErroContaPagar) return res.status(400).json({ erro: erro.message });
     console.error(erro);
     return res.status(500).json({ erro: "Erro interno ao registrar pagamento." });
+  }
+});
+
+// Corrigir os juros/multa de uma conta já paga
+contasPagarRouter.patch("/:id/juros", async (req, res) => {
+  const validacao = z.object({ juros: z.number().min(0).max(1_000_000) }).safeParse(req.body);
+  if (!validacao.success) return res.status(400).json({ erro: "Informe o valor dos juros." });
+  try {
+    return res.json(await definirJuros(req.params.id, validacao.data.juros, req.usuario!.id));
+  } catch (erro) {
+    if (erro instanceof ErroContaPagar) return res.status(400).json({ erro: erro.message });
+    console.error(erro);
+    return res.status(500).json({ erro: "Erro interno ao lançar os juros." });
+  }
+});
+
+// Ligar / parar a recorrência mensal
+contasPagarRouter.patch("/:id/recorrencia", async (req, res) => {
+  const validacao = z.object({ ativa: z.boolean() }).safeParse(req.body);
+  if (!validacao.success) return res.status(400).json({ erro: "Informe se a conta é recorrente." });
+  try {
+    return res.json(await definirRecorrencia(req.params.id, validacao.data.ativa, req.usuario!.id));
+  } catch (erro) {
+    if (erro instanceof ErroContaPagar) return res.status(400).json({ erro: erro.message });
+    console.error(erro);
+    return res.status(500).json({ erro: "Erro interno ao mudar a recorrência." });
   }
 });
 
@@ -198,8 +233,7 @@ contasPagarRouter.put("/:id", async (req, res) => {
 
 contasPagarRouter.delete("/:id", async (req, res) => {
   try {
-    await excluirContaPagar(req.params.id, req.usuario!.id);
-    return res.status(204).end();
+    return res.json(await excluirContaPagar(req.params.id, req.usuario!.id));
   } catch (erro) {
     if (erro instanceof ErroContaPagar) return res.status(400).json({ erro: erro.message });
     console.error(erro);

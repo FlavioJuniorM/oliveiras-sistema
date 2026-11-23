@@ -305,9 +305,17 @@ model ContaPagar {
   anexos         AnexoConta[]
   // Boleto dividido em 2: as duas partes têm o mesmo grupo
   grupoBoleto    String?      @map("grupo_boleto")
+  // Conta recorrente (todo mês): as contas da mesma série têm o mesmo id; a do próximo mês é lançada sozinha
+  recorrente         Boolean   @default(false)
+  serieRecorrente    String?   @map("serie_recorrente")
+  // Vencimento que veio no boleto quando caía em sábado, domingo ou feriado (o "vencimento" vai para o próximo dia útil)
+  vencimentoOriginal DateTime? @map("vencimento_original")
+  // Juros / multa pagos por atraso (além do valor da conta)
+  juros              Decimal   @default(0) @db.Decimal(12, 2)
 
   @@unique([funcionarioId, vencimento])
   @@index([grupoBoleto])
+  @@index([serieRecorrente])
   @@map("contas_pagar")
 }
 
@@ -412,6 +420,10 @@ model Fornecedor {
   telefone        String?
   contato         String? // vendedor / pessoa de contato
   categoriaPadrao String         @default("Fornecedores") @map("categoria_padrao")
+  // Conta que chega todo mês (água, luz, internet, aluguel)
+  recorrente      Boolean        @default(false)
+  diaVencimento   Int?           @map("dia_vencimento") // dia do mês em que costuma vencer
+  valorRecorrente Decimal?       @map("valor_recorrente") @db.Decimal(12, 2) // valor aproximado
   observacoes     String?
   status          StatusRegistro @default(ATIVO)
   criadoEm        DateTime       @default(now()) @map("criado_em")

@@ -25,6 +25,10 @@ const fornecedorSchema = z.object({
   telefone: textoOpcional,
   contato: textoOpcional,
   categoriaPadrao: z.enum(CATEGORIAS).default("Fornecedores"),
+  // Conta que chega todo mês (água, luz, internet, aluguel)
+  recorrente: z.boolean().default(false),
+  diaVencimento: z.preprocess((v) => (v === "" || v === null || v === undefined ? null : Number(v)), z.number().int().min(1, "Dia do vencimento: de 1 a 31.").max(31, "Dia do vencimento: de 1 a 31.").nullable()),
+  valorRecorrente: z.preprocess((v) => (v === "" || v === null || v === undefined ? null : Number(v)), z.number().min(0).max(10_000_000).nullable()),
   observacoes: z.string().max(500).nullable().optional().transform((v) => (v && v.trim() ? v.trim() : null)),
   status: z.enum(["ATIVO", "INATIVO"]).optional(),
 });

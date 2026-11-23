@@ -13,12 +13,30 @@ export interface Fornecedor {
   telefone: string | null;
   contato: string | null;
   categoriaPadrao: string;
+  recorrente?: boolean;
+  diaVencimento?: number | null;
+  valorRecorrente?: string | number | null;
   observacoes: string | null;
   status: "ATIVO" | "INATIVO";
   quantidadeContas?: number;
 }
 
-export type DadosFornecedor = Pick<Fornecedor, "nome" | "documento" | "telefone" | "contato" | "categoriaPadrao" | "observacoes">;
+export type DadosFornecedor = Pick<Fornecedor, "nome" | "documento" | "telefone" | "contato" | "categoriaPadrao" | "observacoes"> & {
+  recorrente: boolean;
+  diaVencimento: string;
+  valorRecorrente: string;
+};
+
+/** Categorias que normalmente chegam todo mês */
+const CATEGORIAS_RECORRENTES = ["Energia", "Água", "Aluguel"];
+
+/** Dados do cadastro → formulário */
+export function dadosDoFornecedor(f: Fornecedor): DadosFornecedor {
+  return {
+    nome: f.nome, documento: f.documento ?? "", telefone: f.telefone ?? "", contato: f.contato ?? "", categoriaPadrao: f.categoriaPadrao, observacoes: f.observacoes ?? "",
+    recorrente: !!f.recorrente, diaVencimento: f.diaVencimento ? String(f.diaVencimento) : "", valorRecorrente: f.valorRecorrente != null ? String(Number(f.valorRecorrente)) : "",
+  };
+}
 
 /** Busca sem acento e sem diferenciar maiúsculas: "frigorifico" acha "Frigorífico". */
 export function normalizar(texto: string) {
@@ -37,7 +55,13 @@ export function CamposFornecedor({
 }) {
   const idCategoria = useId();
   const idObs = useId();
-  const mudar = (campo: keyof DadosFornecedor, valor: string) => onMudar({ ...dados, [campo]: valor });
+  const idRecorrente = useId();
+  const mudar = (campo: keyof DadosFornecedor, valor: string | boolean) => {
+    const novo = { ...dados, [campo]: valor };
+    // Energia, água e aluguel já vêm marcados como recorrentes
+    if (campo === "categoriaPadrao" && CATEGORIAS_RECORRENTES.includes(String(valor)) && !dados.recorrente) novo.recorrente = true;
+    onMudar(novo);
+  };
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <Input label="Nome do fornecedor" value={dados.nome} onChange={(e) => mudar("nome", e.target.value)} required autoFocus={completo} />
@@ -49,6 +73,21 @@ export function CamposFornecedor({
       </div>
       <Input label="Telefone / WhatsApp" type="tel" inputMode="tel" placeholder="(00) 00000-0000" value={dados.telefone ?? ""} onChange={(e) => mudar("telefone", e.target.value)} />
       <Input label="CNPJ ou CPF (opcional)" inputMode="numeric" value={dados.documento ?? ""} onChange={(e) => mudar("documento", e.target.value)} />
+      <div className={`rounded-xl border-2 p-3 sm:col-span-2 ${dados.recorrente ? "border-primary/30 bg-primary/[0.04]" : "border-border"}`}>
+        <label htmlFor={idRecorrente} className="flex min-h-11 cursor-pointer items-start gap-3">
+          <input id={idRecorrente} type="checkbox" checked={dados.recorrente} onChange={(e) => mudar("recorrente", e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-primary" />
+          <span>
+            <span className="block text-sm font-semibold text-ink">Fornecedor recorrente (conta todo mês)</span>
+            <span className="block text-xs text-muted">Água, luz, internet/Wi-Fi, aluguel, telefone... Ao lançar uma conta dele, ela já vem marcada como recorrente.</span>
+          </span>
+        </label>
+        {dados.recorrente && (
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <Input label="Vence todo dia" type="number" inputMode="numeric" min="1" max="31" placeholder="Ex.: 10" value={dados.diaVencimento} onChange={(e) => mudar("diaVencimento", e.target.value)} />
+            <Input label="Valor aproximado (R$)" type="number" inputMode="decimal" min="0" step="0.01" placeholder="Opcional" value={dados.valorRecorrente} onChange={(e) => mudar("valorRecorrente", e.target.value)} />
+          </div>
+        )}
+      </div>
       {completo && (
         <>
           <Input label="Vendedor / contato (opcional)" value={dados.contato ?? ""} onChange={(e) => mudar("contato", e.target.value)} />
@@ -63,7 +102,7 @@ export function CamposFornecedor({
 }
 
 export function dadosVazios(nome = ""): DadosFornecedor {
-  return { nome, documento: "", telefone: "", contato: "", categoriaPadrao: "Fornecedores", observacoes: "" };
+  return { nome, documento: "", telefone: "", contato: "", categoriaPadrao: "Fornecedores", observacoes: "", recorrente: false, diaVencimento: "", valorRecorrente: "" };
 }
 
 /**
@@ -176,7 +215,7 @@ export function CampoFornecedor({
                   <span className="block truncate font-semibold text-ink">{f.nome}</span>
                   <span className="block truncate text-xs text-muted">{[f.telefone, f.contato, f.documento].filter(Boolean).join(" · ") || "Sem contato cadastrado"}</span>
                 </span>
-                <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[11px] text-muted">{f.categoriaPadrao}</span>
+                {f.recorrente && <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">Todo mês</span>}<span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[11px] text-muted">{f.categoriaPadrao}</span>
               </button>
             </li>
           ))}

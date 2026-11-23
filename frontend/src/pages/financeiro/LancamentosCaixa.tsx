@@ -56,7 +56,7 @@ export function LancamentosCaixa() {
   const [diaSelecionado, setDiaSelecionado] = useState(hoje);
   const [lancamentos, setLancamentos] = useState<LancamentoCaixa[]>([]);
   const [entregues, setEntregues] = useState<PedidosDoDiaCaixa[]>([]);
-  const [contasPagas, setContasPagas] = useState<{ total: number; quantidade: number; salarios: number }>({ total: 0, quantidade: 0, salarios: 0 });
+  const [contasPagas, setContasPagas] = useState<{ total: number; quantidade: number; salarios: number; juros?: number }>({ total: 0, quantidade: 0, salarios: 0 });
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [formulario, setFormulario] = useState<{ lancamento?: LancamentoCaixa; data: string } | null>(null);
@@ -72,7 +72,7 @@ export function LancamentosCaixa() {
       const [manuais, pedidosEntregues, pagas] = await Promise.all([
         api<LancamentoCaixa[]>(`/caixa/lancamentos?mes=${chaveMes}`),
         api<PedidosDoDiaCaixa[]>(`/caixa/pedidos-entregues?mes=${chaveMes}`),
-        api<{ total: number; quantidade: number; salarios: number }>(`/caixa/contas-pagas?mes=${chaveMes}`).catch(() => ({ total: 0, quantidade: 0, salarios: 0 })),
+        api<{ total: number; quantidade: number; salarios: number; juros?: number }>(`/caixa/contas-pagas?mes=${chaveMes}`).catch(() => ({ total: 0, quantidade: 0, salarios: 0 })),
       ]);
       setLancamentos(manuais);
       setEntregues(pedidosEntregues);
@@ -196,7 +196,7 @@ export function LancamentosCaixa() {
             <div className="rounded-lg bg-danger/[0.07] px-3 py-2.5">
               <p className="text-xs text-muted">Contas pagas no mês</p>
               <p className="whitespace-nowrap font-display text-lg text-danger sm:text-xl">− {formatarMoeda(contasPagas.total)}</p>
-              <p className="text-[11px] text-muted">{contasPagas.quantidade} conta(s){contasPagas.salarios > 0 ? ` · ${formatarMoeda(contasPagas.salarios)} de salários` : ""}</p>
+              <p className="text-[11px] text-muted">{contasPagas.quantidade} conta(s){contasPagas.salarios > 0 ? ` · ${formatarMoeda(contasPagas.salarios)} de salários` : ""}{contasPagas.juros ? ` · ${formatarMoeda(contasPagas.juros)} de juros` : ""}</p>
             </div>
             <div className="col-span-2 rounded-lg border border-border bg-white px-3 py-3 sm:col-span-4">
               <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">

@@ -228,13 +228,16 @@ caixaRouter.get("/contas-pagas", async (req, res) => {
   const { inicio, fim } = periodoNaLoja(`${mes}-01`, `${mes}-${String(ultimoDia).padStart(2, "0")}`);
   const contas = await prisma.contaPagar.findMany({
     where: { dataPagamento: { gte: inicio, lte: fim }, status: { in: ["PAGO", "PARCIAL"] }, valorPago: { gt: 0 } },
-    select: { valorPago: true, funcionarioId: true },
+    select: { valorPago: true, funcionarioId: true, juros: true },
   });
-  const total = contas.reduce((t, c) => t + Number(c.valorPago), 0);
+  // Juros/multa de boleto pago atrasado também saíram do caixa
+  const juros = contas.reduce((t, c) => t + Number(c.juros), 0);
+  const total = contas.reduce((t, c) => t + Number(c.valorPago), 0) + juros;
   const salarios = contas.filter((c) => c.funcionarioId).reduce((t, c) => t + Number(c.valorPago), 0);
   return res.json({
     total: Math.round(total * 100) / 100,
     quantidade: contas.length,
     salarios: Math.round(salarios * 100) / 100,
+    juros: Math.round(juros * 100) / 100,
   });
 });

@@ -7,7 +7,7 @@ import { Button } from "../../components/ui/Button";
 import { IconeLapis, IconeLixeira, IconeMais } from "../../components/ui/Icones";
 import { Link } from "react-router-dom";
 import { chaveFornecedor, ListaPorFornecedor, type ContaPagar } from "./ContasPagar";
-import { CamposFornecedor, dadosVazios, normalizar, type DadosFornecedor, type Fornecedor } from "../../components/fornecedores/fornecedores";
+import { CamposFornecedor, dadosDoFornecedor, dadosVazios, normalizar, type DadosFornecedor, type Fornecedor } from "../../components/fornecedores/fornecedores";
 
 function linkWhatsApp(telefone: string) {
   const numeros = telefone.replace(/\D/g, "");
@@ -20,6 +20,7 @@ export function Fornecedores() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
   const [busca, setBusca] = useState("");
+  const [soRecorrentes, setSoRecorrentes] = useState(false);
   const [edicao, setEdicao] = useState<{ fornecedor?: Fornecedor } | null>(null);
   const [exclusao, setExclusao] = useState<Fornecedor | null>(null);
   const [boletosDe, setBoletosDe] = useState<Fornecedor | null>(null);
@@ -41,9 +42,11 @@ export function Fornecedores() {
 
   const visiveis = useMemo(() => {
     const termo = normalizar(busca);
-    if (!termo) return fornecedores;
-    return fornecedores.filter((f) => normalizar(`${f.nome} ${f.contato ?? ""} ${f.documento ?? ""} ${f.telefone ?? ""} ${f.categoriaPadrao}`).includes(termo));
-  }, [busca, fornecedores]);
+    const base = soRecorrentes ? fornecedores.filter((f) => f.recorrente) : fornecedores;
+    if (!termo) return base;
+    return base.filter((f) => normalizar(`${f.nome} ${f.contato ?? ""} ${f.documento ?? ""} ${f.telefone ?? ""} ${f.categoriaPadrao}`).includes(termo));
+  }, [busca, fornecedores, soRecorrentes]);
+  const quantosRecorrentes = fornecedores.filter((f) => f.recorrente).length;
 
   return (
     <div className="flex flex-col gap-5">
@@ -58,7 +61,13 @@ export function Fornecedores() {
       </div>
 
       <Card>
-        <Input aria-label="Buscar fornecedor" placeholder="Buscar por nome, contato, CNPJ ou telefone..." value={busca} onChange={(e) => setBusca(e.target.value)} />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="flex-1"><Input aria-label="Buscar fornecedor" placeholder="Buscar por nome, contato, CNPJ ou telefone..." value={busca} onChange={(e) => setBusca(e.target.value)} /></div>
+          <div role="group" aria-label="Filtrar fornecedores" className="grid grid-cols-2 rounded-xl border border-border bg-white p-1">
+            <button type="button" aria-pressed={!soRecorrentes} onClick={() => setSoRecorrentes(false)} className={`h-10 rounded-lg px-3 text-sm font-semibold ${!soRecorrentes ? "bg-ink text-white" : "text-ink hover:bg-background"}`}>Todos ({fornecedores.length})</button>
+            <button type="button" aria-pressed={soRecorrentes} onClick={() => setSoRecorrentes(true)} className={`h-10 rounded-lg px-3 text-sm font-semibold ${soRecorrentes ? "bg-ink text-white" : "text-ink hover:bg-background"}`}>Recorrentes ({quantosRecorrentes})</button>
+          </div>
+        </div>
       </Card>
 
       {erro && <p role="alert" className="rounded-lg bg-danger/10 px-4 py-3 text-sm text-danger">{erro}</p>}
@@ -78,8 +87,17 @@ export function Fornecedores() {
             <Card key={f.id} className="flex flex-col">
               <div className="flex items-start justify-between gap-3">
                 <p className="min-w-0 break-words font-display text-xl uppercase text-ink">{f.nome}</p>
-                <span className="shrink-0 rounded-full bg-background px-2.5 py-1 text-xs font-semibold text-muted">{f.categoriaPadrao}</span>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <span className="rounded-full bg-background px-2.5 py-1 text-xs font-semibold text-muted">{f.categoriaPadrao}</span>
+                  {f.recorrente && <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">Recorrente · todo mês</span>}
+                </div>
               </div>
+              {f.recorrente && (f.diaVencimento || f.valorRecorrente) && (
+                <p className="mt-2 text-sm text-ink">
+                  {f.diaVencimento ? <>Vence todo dia <strong>{f.diaVencimento}</strong></> : "Conta mensal"}
+                  {f.valorRecorrente ? <> · cerca de <strong>{Number(f.valorRecorrente).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</strong></> : null}
+                </p>
+              )}
               <dl className="mt-3 grid grid-cols-1 gap-1.5 text-sm">
                 {f.telefone && (
                   <div className="flex gap-2"><dt className="w-20 shrink-0 text-muted">Telefone</dt><dd className="text-ink">{whatsapp ? <a href={whatsapp} target="_blank" rel="noreferrer" className="font-semibold text-success underline-offset-2 hover:underline">{f.telefone}</a> : f.telefone}</dd></div>
@@ -138,7 +156,7 @@ function Modal({ titulo, onFechar, children }: { titulo: string; onFechar: () =>
 function ModalFornecedor({ fornecedor, onFechar, onSalvo }: { fornecedor?: Fornecedor; onFechar: () => void; onSalvo: () => void }) {
   const [dados, setDados] = useState<DadosFornecedor>(
     fornecedor
-      ? { nome: fornecedor.nome, documento: fornecedor.documento ?? "", telefone: fornecedor.telefone ?? "", contato: fornecedor.contato ?? "", categoriaPadrao: fornecedor.categoriaPadrao, observacoes: fornecedor.observacoes ?? "" }
+      ? dadosDoFornecedor(fornecedor)
       : dadosVazios()
   );
   const [erro, setErro] = useState("");

@@ -57,7 +57,7 @@ async function numerosBase(inicio: string, fim: string) {
     }),
     prisma.contaPagar.findMany({
       where: { dataPagamento: { gte: instantes.inicio, lte: instantes.fim }, status: { in: ["PAGO", "PARCIAL"] } },
-      select: { valorPago: true, dataPagamento: true, categoria: true, fornecedor: true, funcionarioId: true },
+      select: { valorPago: true, juros: true, dataPagamento: true, categoria: true, fornecedor: true, funcionarioId: true },
     }),
     prisma.pedido.findMany({
       where: { criadoEm: { gte: instantes.inicio, lte: instantes.fim }, statusPagamento: { not: "CANCELADO" } },
@@ -73,7 +73,8 @@ async function numerosBase(inicio: string, fim: string) {
   const ceasa = lancamentos.reduce((s, l) => s + Number(l.ceasa), 0);
   const sangrias = lancamentos.reduce((s, l) => s + Number(l.gastos), 0);
   const comandasEntregues = Array.from(ultimaEntrega.values()).reduce((s, e) => s + Number(e.pedido.total), 0);
-  const contasPagasTotal = contasPagas.reduce((s, c) => s + Number(c.valorPago), 0);
+  // Juros/multa por atraso também são saída
+  const contasPagasTotal = contasPagas.reduce((s, c) => s + Number(c.valorPago) + Number(c.juros), 0);
   const entradas = caixaLoja + ceasa + comandasEntregues;
   const saidas = contasPagasTotal + sangrias;
 
@@ -206,7 +207,7 @@ export async function relatorioCompleto(inicio: string, fim: string) {
   }
   for (const c of atual.contasPagas) {
     const linha = c.dataPagamento ? serie.get(dataNaLoja(c.dataPagamento)) : undefined;
-    if (linha) linha.contasPagas += Number(c.valorPago);
+    if (linha) linha.contasPagas += Number(c.valorPago) + Number(c.juros);
   }
   const porDia = Array.from(serie.values()).map((l) => ({
     data: l.data,
@@ -382,10 +383,10 @@ export async function relatorioCompleto(inicio: string, fim: string) {
   // ───────────── Gastos e contas a pagar ─────────────
   const saldoConta = (c: { valor: unknown; valorPago: unknown }) => Math.max(Number(c.valor) - Number(c.valorPago), 0);
   const gastosPorCategoria = new Map<string, number>();
-  for (const c of atual.contasPagas) gastosPorCategoria.set(c.categoria, (gastosPorCategoria.get(c.categoria) ?? 0) + Number(c.valorPago));
+  for (const c of atual.contasPagas) gastosPorCategoria.set(c.categoria, (gastosPorCategoria.get(c.categoria) ?? 0) + Number(c.valorPago) + Number(c.juros));
   if (atual.sangrias > 0) gastosPorCategoria.set("Sangrias do caixa", (gastosPorCategoria.get("Sangrias do caixa") ?? 0) + atual.sangrias);
   const porFornecedor = new Map<string, number>();
-  for (const c of atual.contasPagas) if (!c.funcionarioId) porFornecedor.set(c.fornecedor, (porFornecedor.get(c.fornecedor) ?? 0) + Number(c.valorPago));
+  for (const c of atual.contasPagas) if (!c.funcionarioId) porFornecedor.set(c.fornecedor, (porFornecedor.get(c.fornecedor) ?? 0) + Number(c.valorPago) + Number(c.juros));
 
   const venceNoPeriodo = contasVencendo.reduce((s, c) => s + Number(c.valor), 0);
   const pagoDoQueVence = contasVencendo.reduce((s, c) => s + Number(c.valorPago), 0);
