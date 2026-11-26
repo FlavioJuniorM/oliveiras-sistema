@@ -322,7 +322,23 @@ export async function listarAgendados() {
 }
 
 /** Contas a receber de verdade: vendas a prazo com saldo em aberto (de qualquer data). */
-export async function listarAReceber() {
+export async function listarAReceber(situacao: "abertas" | "canceladas" | "recebidas" = "abertas") {
+  if (situacao === "canceladas") {
+    return prisma.pedido.findMany({
+      where: { contaReceber: { status: "CANCELADO" } },
+      include: INCLUDE_LISTA_PEDIDOS,
+      orderBy: { contaReceber: { canceladoEm: "desc" } },
+      take: 200,
+    });
+  }
+  if (situacao === "recebidas") {
+    return prisma.pedido.findMany({
+      where: { statusPagamento: { not: "CANCELADO" }, contaReceber: { status: "PAGO" } },
+      include: INCLUDE_LISTA_PEDIDOS,
+      orderBy: { contaReceber: { vencimento: "desc" } },
+      take: 200,
+    });
+  }
   return prisma.pedido.findMany({
     where: {
       statusPagamento: { not: "CANCELADO" },
@@ -331,6 +347,86 @@ export async function listarAReceber() {
     include: INCLUDE_LISTA_PEDIDOS,
     orderBy: { contaReceber: { vencimento: "asc" } },
   });
+}
+
+async function contaDoPedido(pedidoId: string) {
+  const pedido = await prisma.pedido.findUnique({ where: { id: pedidoId }, include: { contaReceber: true, pagamentos: true } });
+  if (!pedido?.contaReceber) throw new ErroPedido("Esta comanda não tem conta a receber.");
+  return { pedido, conta: pedido.contaReceber };
+}
+
+/**
+ * Alterar a conta a receber: vencimento e valor que falta receber (acerto, desconto combinado...).
+ * A venda (comanda) continua com o mesmo total.
+ */
+export async function alterarContaReceber(
+  pedidoId: string,
+  dados: { vencimento: string; saldo: number; observacoes?: string | null },
+  usuarioId: string
+) {
+  const { pedido, conta } = await contaDoPedido(pedidoId);
+  if (conta.status === "CANCELADO") throw new ErroPedido("Conta cancelada. Reabra antes de alterar.");
+  if (dados.saldo <= 0) throw new ErroPedido("O valor em aberto precisa ser maior que zero. Para zerar, registre o pagamento ou cancele a conta.");
+  const jaPago = pedido.pagamentos.reduce((t, p) => t + Number(p.valor), 0);
+  const atualizada = await prisma.$transaction(async (tx) => {
+    const c = await tx.contaReceber.update({
+      where: { pedidoId },
+      data: {
+        vencimento: new Date(`${dados.vencimento}T00:00:00Z`),
+        saldo: dados.saldo,
+        status: jaPago > 0 ? "PARCIAL" : "PENDENTE",
+        observacoes: dados.observacoes?.trim() || null,
+      },
+    });
+    await tx.pedido.update({ where: { id: pedidoId }, data: { statusPagamento: jaPago > 0 ? "PARCIALMENTE_PAGO" : "PENDENTE" } });
+    return c;
+  });
+  await registrarLog({
+    usuarioId,
+    acao: "ALTEROU_CONTA_RECEBER",
+    entidade: "pedido",
+    entidadeId: pedidoId,
+    detalhes: `Alterou a conta a receber da comanda ${pedido.numero}: vencimento ${formatarDataCalendario(conta.vencimento)} → ${formatarDataCalendario(atualizada.vencimento)}, em aberto R$ ${Number(conta.saldo).toFixed(2)} → R$ ${dados.saldo.toFixed(2)}${dados.observacoes ? ` — ${dados.observacoes.trim()}` : ""}`,
+  });
+  return atualizada;
+}
+
+/** Cancela a cobrança (cliente não vai pagar, lançado errado...). A venda continua registrada; dá para reabrir. */
+export async function cancelarContaReceber(pedidoId: string, motivo: string, usuarioId: string) {
+  const { pedido, conta } = await contaDoPedido(pedidoId);
+  if (conta.status === "CANCELADO") throw new ErroPedido("Esta conta já está cancelada.");
+  if (conta.status === "PAGO") throw new ErroPedido("Esta conta já foi recebida.");
+  const atualizada = await prisma.contaReceber.update({
+    where: { pedidoId },
+    data: { status: "CANCELADO", motivoCancelamento: motivo, canceladoEm: new Date() },
+  });
+  await registrarLog({
+    usuarioId,
+    acao: "CANCELOU_CONTA_RECEBER",
+    entidade: "pedido",
+    entidadeId: pedidoId,
+    detalhes: `Cancelou a conta a receber da comanda ${pedido.numero} (em aberto R$ ${Number(conta.saldo).toFixed(2)}) — ${motivo}`,
+  });
+  return atualizada;
+}
+
+/** Volta uma conta cancelada para "em aberto", com o mesmo saldo de antes. */
+export async function reabrirContaReceber(pedidoId: string, usuarioId: string) {
+  const { pedido, conta } = await contaDoPedido(pedidoId);
+  if (conta.status !== "CANCELADO") throw new ErroPedido("Só dá para reabrir conta cancelada.");
+  const jaPago = pedido.pagamentos.reduce((t, p) => t + Number(p.valor), 0);
+  const atualizada = await prisma.contaReceber.update({
+    where: { pedidoId },
+    data: { status: jaPago > 0 ? "PARCIAL" : "PENDENTE", motivoCancelamento: null, canceladoEm: null },
+  });
+  await registrarLog({
+    usuarioId,
+    acao: "ALTEROU_CONTA_RECEBER",
+    entidade: "pedido",
+    entidadeId: pedidoId,
+    detalhes: `Reabriu a conta a receber da comanda ${pedido.numero} (em aberto R$ ${Number(conta.saldo).toFixed(2)})`,
+  });
+  return atualizada;
 }
 
 const STATUS_OPERACAO = [
@@ -815,7 +911,7 @@ export async function finalizarConferenciaPedido(
  */
 export async function registrarPagamento(
   pedidoId: string,
-  input: PagamentoImediatoInput & { dataRecebimento?: string },
+  input: PagamentoImediatoInput & { dataRecebimento?: string; foraDoCaixa?: boolean; observacao?: string },
   usuarioId: string
 ) {
   // Recebimento em dia anterior: registra ao meio-dia (Brasília) daquele dia, para entrar no caixa/relatório do dia certo
@@ -844,7 +940,15 @@ export async function registrarPagamento(
 
   const resultado = await prisma.$transaction(async (tx) => {
     await tx.pagamento.create({
-      data: { pedidoId, forma: input.forma, valor: input.valor, usuarioId, ...(criadoEm ? { criadoEm } : {}) },
+      data: {
+        pedidoId,
+        forma: input.forma,
+        valor: input.valor,
+        usuarioId,
+        ...(criadoEm ? { criadoEm } : {}),
+        foraDoCaixa: !!input.foraDoCaixa,
+        observacao: input.observacao?.trim() || null,
+      },
     });
 
     let novoStatusPedido: "PENDENTE" | "PARCIALMENTE_PAGO" | "PAGO" = "PARCIALMENTE_PAGO";
@@ -890,7 +994,7 @@ export async function registrarPagamento(
     acao: "REGISTROU_PAGAMENTO",
     entidade: "pedido",
     entidadeId: pedidoId,
-    detalhes: `Registrou pagamento de R$ ${input.valor} (${input.forma}) no pedido ${pedido.numero}${input.dataRecebimento ? ` — recebido em ${formatarDataCalendario(new Date(`${input.dataRecebimento}T15:00:00Z`))}` : ""}`,
+    detalhes: `Registrou pagamento de R$ ${input.valor} (${input.forma}) no pedido ${pedido.numero}${input.dataRecebimento ? ` — recebido em ${formatarDataCalendario(new Date(`${input.dataRecebimento}T15:00:00Z`))}` : ""}${input.foraDoCaixa ? " — recebido por fora do caixa (não entra no fechamento)" : ""}${input.observacao ? ` — ${input.observacao.trim()}` : ""}`,
   });
 
   if (resultado.statusPagamento === "PAGO") {

@@ -145,13 +145,13 @@ export function Funcionarios() {
           return (
             <Card key={f.id} className={`flex flex-col ${inativo ? "opacity-70" : ""}`}>
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <button type="button" onClick={() => setHistoricoDe(f)} className="text-left" title="Ver histórico de pagamentos">
-                    <span className="break-words font-display text-xl uppercase text-ink underline decoration-primary/40 decoration-2 underline-offset-4 hover:text-primary">{f.nome}</span>
-                    <span className="block text-xs font-semibold text-primary">Ver histórico de pagamentos ›</span>
-                  </button>
-                  <p className="text-sm text-muted">{f.funcao || "Função não informada"}</p>
-                </div>
+                <button type="button" onClick={() => setHistoricoDe(f)} className="flex min-w-0 items-center gap-3 text-left" title="Ver histórico de pagamentos">
+                  <span aria-hidden className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-ink font-display text-xl text-white">{iniciais(f.nome)}</span>
+                  <span className="min-w-0">
+                    <span className="block break-words font-display text-xl uppercase leading-tight text-ink hover:text-primary">{f.nome}</span>
+                    <span className="block text-sm text-muted">{f.funcao || "Função não informada"}</span>
+                  </span>
+                </button>
                 <div className="flex shrink-0 flex-col items-end gap-1">
                   <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${f.registrado ? "bg-success/10 text-success" : "bg-gold/15 text-gold-texto"}`}>{f.registrado ? "Registrado" : "Sem registro"}</span>
                   {inativo && <span className="rounded-full bg-background px-2.5 py-1 text-xs font-semibold text-muted">Desligado</span>}
@@ -181,8 +181,9 @@ export function Funcionarios() {
 
               {!inativo && (
                 <div className="mt-auto grid grid-cols-2 gap-2 pt-4">
+                  <Button onClick={() => setHistoricoDe(f)}>Pagamentos</Button>
                   <Button variante="secundaria" onClick={() => setDescontosDe(f)}>Descontos</Button>
-                  <Button variante="secundaria" onClick={() => setFolha({ funcionario: f })}>Folha / recibo</Button>
+                  <Button variante="secundaria" className="col-span-2" onClick={() => setFolha({ funcionario: f })}><IconeDownload tamanho={16} />Folha / recibo para assinar</Button>
                 </div>
               )}
               <div className={`flex gap-2 ${inativo ? "mt-auto pt-4" : "pt-2"}`}>
@@ -415,6 +416,50 @@ function sabadoDoDesconto(dia: string) {
 
 const sabadoCurto = (iso: string) => `sáb ${formatarDataCalendario(iso).slice(0, 5)}`;
 
+// ───────────── Visual compartilhado: cabeçalho do funcionário ─────────────
+
+function iniciais(nome: string) {
+  const partes = nome.trim().split(/\s+/);
+  return ((partes[0]?.[0] ?? "") + (partes.length > 1 ? partes[partes.length - 1][0] : "")).toUpperCase();
+}
+
+function PainelFuncionario({ funcionario, rotulo, onFechar, children, largo = false }: { funcionario: Funcionario; rotulo: string; onFechar: () => void; children: React.ReactNode; largo?: boolean }) {
+  useEffect(() => {
+    const fechar = (e: KeyboardEvent) => { if (e.key === "Escape") onFechar(); };
+    window.addEventListener("keydown", fechar);
+    return () => window.removeEventListener("keydown", fechar);
+  }, [onFechar]);
+  return (
+    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 sm:items-center sm:px-4" onClick={onFechar}>
+      <div role="dialog" aria-modal="true" aria-label={`${rotulo} — ${funcionario.nome}`} className={`max-h-[94vh] w-full ${largo ? "max-w-4xl" : "max-w-2xl"} overflow-y-auto rounded-t-card bg-surface shadow-2xl sm:rounded-card`} onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center gap-3 bg-ink px-5 py-4 text-white sm:px-6">
+          <span aria-hidden className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary font-display text-xl">{iniciais(funcionario.nome)}</span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/60">{rotulo}</p>
+            <p className="truncate font-display text-2xl uppercase leading-tight">{funcionario.nome}</p>
+            <p className="truncate text-xs text-white/70">{funcionario.funcao || "Função não informada"} · {formatarMoeda(funcionario.salario)} por sábado · {funcionario.registrado ? "registrado" : "sem registro"}</p>
+          </div>
+          <button type="button" onClick={onFechar} aria-label="Fechar" className="h-10 w-10 shrink-0 rounded-lg text-2xl text-white/70 hover:bg-white/10">×</button>
+        </div>
+        <div className="p-5 sm:p-6">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+const CORES_TIPO: Record<Desconto["tipo"], string> = {
+  ADIANTAMENTO: "bg-primary/10 text-primary",
+  VALE: "bg-gold/25 text-ink",
+  CARNE: "bg-danger/10 text-danger",
+  OUTRO: "bg-background text-muted",
+};
+const DICA_TIPO: Record<Desconto["tipo"], string> = {
+  ADIANTAMENTO: "dinheiro antes do sábado",
+  VALE: "vale ou compra",
+  CARNE: "levou da loja",
+  OUTRO: "quebra, falta...",
+};
+
 function ModalDescontos({ funcionario, onFechar, onMudou }: { funcionario: Funcionario; onFechar: () => void; onMudou: () => void }) {
   const [descontos, setDescontos] = useState<Desconto[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -426,6 +471,7 @@ function ModalDescontos({ funcionario, onFechar, onMudou }: { funcionario: Funci
   const [erro, setErro] = useState("");
   const [aviso, setAviso] = useState("");
   const [excluindo, setExcluindo] = useState<string | null>(null);
+  const [verPagos, setVerPagos] = useState(false);
 
   async function carregar() {
     try {
@@ -445,7 +491,9 @@ function ModalDescontos({ funcionario, onFechar, onMudou }: { funcionario: Funci
   const [sabadoEscolhido, setSabadoEscolhido] = useState<string | null>(null);
   const sabadoAlvo = sabadoEscolhido ?? (data ? sabadoDoDesconto(data) : "");
   const opcoesSabado = [sabadoPassado(), proximoSabado()];
-  const passaDoSalario = valorNumero > funcionario.salario;
+  const jaNoSabado = descontos.filter((d) => !d.sabadoPago && d.sabado?.slice(0, 10) === sabadoAlvo).reduce((t, d) => t + d.valor, 0);
+  const sobra = funcionario.salario - jaNoSabado - valorNumero;
+  const passaDoSalario = sobra < 0;
 
   async function salvar(e: FormEvent) {
     e.preventDefault();
@@ -470,7 +518,8 @@ function ModalDescontos({ funcionario, onFechar, onMudou }: { funcionario: Funci
     }
   }
 
-  async function excluir(d: Desconto) {
+  async function excluir(d: Desconto, total: number) {
+    if (!window.confirm(`Excluir ${d.rotulo.toLowerCase()} de ${formatarMoeda(total)}? O salário do sábado volta ao valor certo.`)) return;
     setErro("");
     setAviso("");
     setExcluindo(d.id);
@@ -492,106 +541,126 @@ function ModalDescontos({ funcionario, onFechar, onMudou }: { funcionario: Funci
     for (const d of descontos) mapa.set(d.grupoId, [...(mapa.get(d.grupoId) ?? []), d]);
     return Array.from(mapa.values());
   }, [descontos]);
+  const abertos = grupos.filter((g) => !g.some((p) => p.sabadoPago));
+  const pagos = grupos.filter((g) => g.some((p) => p.sabadoPago));
   const pendentes = descontos.filter((d) => !d.sabadoPago).reduce((t, d) => t + d.valor, 0);
 
-  return (
-    <Modal titulo={`Descontos — ${funcionario.nome}`} onFechar={onFechar}>
-      <p className="mt-1 text-sm text-muted">Adiantamento, vale ou carne que ele pegou. O valor sai do <strong className="text-ink">próximo sábado ainda não pago</strong> e já aparece em Contas a Pagar.</p>
-
-      <form onSubmit={salvar} className="mt-4 flex flex-col gap-4 rounded-lg border-2 border-primary/15 bg-primary/[0.03] p-4">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {TIPOS_DESCONTO.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTipo(t.id)}
-              aria-pressed={tipo === t.id}
-              className={`min-h-12 rounded-lg border px-2 py-2 text-sm font-semibold transition ${tipo === t.id ? "border-primary bg-primary text-white" : "border-border bg-white text-ink hover:border-ink/40"}`}
-            >
-              {t.rotulo}
-            </button>
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Input label="Dia em que pegou" type="date" value={data} max={dataLocalISO()} onChange={(e) => setData(e.target.value)} required />
-          <Input label="Valor (R$)" inputMode="decimal" placeholder="0,00" value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d,.]/g, ""))} required />
-        </div>
-        <Input label="Descrição (opcional)" placeholder={TIPOS_DESCONTO.find((t) => t.id === tipo)?.exemplo} value={descricao} maxLength={300} onChange={(e) => setDescricao(e.target.value)} />
-        <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-ink">Descontar no salário de</span>
-          <div className="grid grid-cols-2 gap-2">
-            {opcoesSabado.map((s, i) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setSabadoEscolhido(s)}
-                aria-pressed={sabadoAlvo === s}
-                className={`min-h-12 rounded-lg border px-2 py-1.5 text-sm font-semibold ${sabadoAlvo === s ? "border-primary bg-primary text-white" : "border-border bg-white text-ink hover:border-ink/40"}`}
-              >
-                {sabadoCurto(s)}
-                <span className={`block text-[11px] font-normal ${sabadoAlvo === s ? "text-white/80" : "text-muted"}`}>{i === 0 ? "semana que fechou" : "esta semana"}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-        {sabadoAlvo && (
-          <p className="rounded-lg bg-white px-3 py-2 text-sm text-ink">
-            Será descontado no <strong>{sabadoCurto(sabadoAlvo)}</strong>
-            {valorNumero > 0 && <> · salário de {formatarMoeda(funcionario.salario)} → <strong>{formatarMoeda(Math.max(funcionario.salario - valorNumero, 0))}</strong></>}
-            {passaDoSalario && <span className="mt-1 block text-xs text-gold-texto">O valor passa do salário de um sábado: o restante será descontado no sábado seguinte.</span>}
-            {sabadoAlvo === sabadoPassado() && <span className="mt-1 block text-xs text-muted">Se esse sábado já estiver pago, o desconto vai para o próximo sábado em aberto.</span>}
+  const linha = (partes: Desconto[]) => {
+    const d = partes[0];
+    const total = partes.reduce((t, p) => t + p.valor, 0);
+    const pago = partes.some((p) => p.sabadoPago);
+    return (
+      <li key={d.grupoId} className="flex items-center gap-3 px-3 py-3">
+        <span className={`shrink-0 rounded-lg px-2 py-1 text-[11px] font-bold uppercase ${CORES_TIPO[d.tipo]}`}>{d.rotulo}</span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm text-ink">{d.descricao || <span className="text-muted">Sem descrição</span>}</p>
+          <p className="text-xs text-muted">
+            Pegou {formatarDataCalendario(d.data).slice(0, 5)} · {pago ? "descontado" : "desconta"} no{" "}
+            {partes.map((p) => (p.sabado ? `${sabadoCurto(p.sabado)}${partes.length > 1 ? ` (${formatarMoeda(p.valor)})` : ""}` : "sábado excluído")).join(" e ")}
           </p>
+        </div>
+        <strong className={`shrink-0 whitespace-nowrap ${pago ? "text-muted" : "text-danger"}`}>− {formatarMoeda(total)}</strong>
+        {!pago && (
+          <button type="button" onClick={() => excluir(d, total)} disabled={excluindo === d.id} aria-label={`Excluir ${d.rotulo} de ${formatarMoeda(total)}`} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-danger hover:bg-danger/5 disabled:opacity-40">
+            <IconeLixeira tamanho={16} />
+          </button>
         )}
-        {erro && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
-        {aviso && <p role="status" className="rounded-lg bg-success/10 px-3 py-2 text-sm font-semibold text-success">{aviso}</p>}
-        <Button type="submit" tamanho="grande" disabled={salvando}><IconeMais tamanho={18} />{salvando ? "Lançando..." : "Lançar desconto"}</Button>
-      </form>
+      </li>
+    );
+  };
 
-      <div className="mt-5 flex items-baseline justify-between gap-3">
-        <p className="font-semibold text-ink">Descontos lançados</p>
-        {pendentes > 0 && <p className="text-sm text-muted">A descontar: <strong className="text-danger">{formatarMoeda(pendentes)}</strong></p>}
+  return (
+    <PainelFuncionario funcionario={funcionario} rotulo="Descontos" onFechar={onFechar} largo>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_280px]">
+        <form onSubmit={salvar} className="flex flex-col gap-5">
+          <section>
+            <p className="text-sm font-semibold text-ink"><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink text-xs text-white">1</span>O que ele pegou?</p>
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {TIPOS_DESCONTO.map((t) => (
+                <button key={t.id} type="button" onClick={() => setTipo(t.id)} aria-pressed={tipo === t.id}
+                  className={`min-h-16 rounded-xl border-2 px-2 py-2 text-left transition ${tipo === t.id ? "border-primary bg-primary/[0.06]" : "border-border bg-white hover:border-ink/30"}`}>
+                  <span className={`block text-sm font-semibold ${tipo === t.id ? "text-primary" : "text-ink"}`}>{t.rotulo}</span>
+                  <span className="block text-[11px] text-muted">{DICA_TIPO[t.id]}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <p className="text-sm font-semibold text-ink"><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink text-xs text-white">2</span>Quanto e quando?</p>
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <div>
+                <Input label="Valor (R$)" inputMode="decimal" placeholder="0,00" value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d,.]/g, ""))} required />
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {[20, 50, 100, 200].map((v) => <button key={v} type="button" onClick={() => setValor(String(v))} className="h-8 rounded-full border border-border px-2.5 text-xs font-semibold text-ink hover:bg-background">R$ {v}</button>)}
+                </div>
+              </div>
+              <Input label="Dia em que pegou" type="date" value={data} max={dataLocalISO()} onChange={(e) => { setData(e.target.value); setSabadoEscolhido(null); }} required />
+            </div>
+            <div className="mt-3"><Input label="Descrição (opcional)" placeholder={TIPOS_DESCONTO.find((t) => t.id === tipo)?.exemplo} value={descricao} maxLength={300} onChange={(e) => setDescricao(e.target.value)} /></div>
+          </section>
+
+          <section>
+            <p className="text-sm font-semibold text-ink"><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink text-xs text-white">3</span>Descontar no salário de</p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {opcoesSabado.map((s, i) => (
+                <button key={s} type="button" onClick={() => setSabadoEscolhido(s)} aria-pressed={sabadoAlvo === s}
+                  className={`min-h-14 rounded-xl border-2 px-3 py-2 text-left ${sabadoAlvo === s ? "border-primary bg-primary/[0.06]" : "border-border bg-white hover:border-ink/30"}`}>
+                  <span className={`block text-sm font-semibold ${sabadoAlvo === s ? "text-primary" : "text-ink"}`}>{sabadoCurto(s)}</span>
+                  <span className="block text-[11px] text-muted">{i === 0 ? "semana que fechou" : "esta semana"}</span>
+                </button>
+              ))}
+            </div>
+            {sabadoAlvo === sabadoPassado() && <p className="mt-1.5 text-xs text-muted">Se esse sábado já estiver pago, o desconto vai para o próximo sábado em aberto.</p>}
+          </section>
+
+          {erro && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
+          {aviso && <p role="status" className="rounded-lg bg-success/10 px-3 py-2 text-sm font-semibold text-success">{aviso}</p>}
+          {valorNumero > 0 && (
+            <p className="rounded-lg bg-background px-3 py-2 text-sm text-ink lg:hidden">
+              {sabadoAlvo ? sabadoCurto(sabadoAlvo) : "Sábado"}: {formatarMoeda(funcionario.salario)}{jaNoSabado > 0 ? ` − ${formatarMoeda(jaNoSabado)}` : ""} − {formatarMoeda(valorNumero)} = <strong className={passaDoSalario ? "text-danger" : "text-success"}>vai receber {formatarMoeda(Math.max(sobra, 0))}</strong>
+              {passaDoSalario && <span className="block text-xs text-gold-texto">Passou do salário: {formatarMoeda(-sobra)} vai para o sábado seguinte.</span>}
+            </p>
+          )}
+          <Button type="submit" tamanho="grande" disabled={salvando}><IconeMais tamanho={18} />{salvando ? "Lançando..." : valorNumero > 0 ? `Lançar desconto de ${formatarMoeda(valorNumero)}` : "Lançar desconto"}</Button>
+        </form>
+
+        {/* Prévia do sábado: como fica o salário */}
+        <aside className="hidden h-fit rounded-xl border-2 border-dashed border-border bg-background/60 p-4 lg:sticky lg:top-24 lg:block">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-muted">Como fica o {sabadoAlvo ? sabadoCurto(sabadoAlvo) : "sábado"}</p>
+          <ul className="mt-3 flex flex-col gap-1.5 text-sm">
+            <li className="flex justify-between gap-2"><span className="text-ink">Salário</span><span className="text-ink">{formatarMoeda(funcionario.salario)}</span></li>
+            {jaNoSabado > 0 && <li className="flex justify-between gap-2"><span className="text-muted">Já lançados</span><span className="text-danger">− {formatarMoeda(jaNoSabado)}</span></li>}
+            <li className="flex justify-between gap-2"><span className="text-muted">Este desconto</span><span className="text-danger">− {formatarMoeda(valorNumero)}</span></li>
+          </ul>
+          <div className="mt-3 border-t-2 border-dashed border-border pt-3">
+            <p className="text-xs text-muted">Vai receber</p>
+            <p className={`font-display text-3xl ${passaDoSalario ? "text-danger" : "text-success"}`}>{formatarMoeda(Math.max(sobra, 0))}</p>
+            {passaDoSalario && <p className="mt-1 text-xs text-gold-texto">Passou do salário: {formatarMoeda(-sobra)} vai para o sábado seguinte.</p>}
+          </div>
+          {pendentes > 0 && <p className="mt-3 rounded-lg bg-white px-3 py-2 text-xs text-ink">Total ainda a descontar: <strong className="text-danger">{formatarMoeda(pendentes)}</strong></p>}
+        </aside>
       </div>
-      {carregando ? (
-        <p className="mt-2 text-sm text-muted">Carregando...</p>
-      ) : grupos.length === 0 ? (
-        <p className="mt-2 rounded-lg bg-background px-3 py-4 text-center text-sm text-muted">Nenhum desconto lançado.</p>
-      ) : (
-        <ul className="mt-2 divide-y divide-border rounded-lg border border-border">
-          {grupos.map((partes) => {
-            const d = partes[0];
-            const total = partes.reduce((t, p) => t + p.valor, 0);
-            const pago = partes.some((p) => p.sabadoPago);
-            const info = TIPOS_DESCONTO.find((t) => t.id === d.tipo);
-            return (
-              <li key={d.grupoId} className="flex items-start justify-between gap-3 px-3 py-2.5">
-                <div className="min-w-0">
-                  <p className="text-sm text-ink"><strong>{d.rotulo}</strong>{d.descricao && <span className="text-muted"> · {d.descricao}</span>}</p>
-                  <p className="text-xs text-muted">
-                    Pegou em {formatarDataCalendario(d.data)} · descontado no{" "}
-                    {partes.map((p) => (p.sabado ? `${sabadoCurto(p.sabado)}${partes.length > 1 ? ` (${formatarMoeda(p.valor)})` : ""}` : "sábado excluído")).join(" e ")}
-                    {pago && <span className="ml-1 font-semibold text-success">· já pago</span>}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <strong className="whitespace-nowrap text-danger">− {formatarMoeda(total)}</strong>
-                  {!pago && (
-                    <button
-                      type="button"
-                      onClick={() => excluir(d)}
-                      disabled={excluindo === d.id}
-                      aria-label={`Excluir ${d.rotulo} de ${formatarMoeda(total)}`}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg text-danger hover:bg-danger/5 disabled:opacity-40"
-                    >
-                      <IconeLixeira tamanho={16} />
-                    </button>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </Modal>
+
+      <section className="mt-6">
+        <div className="flex items-baseline justify-between gap-3">
+          <p className="font-display text-xl uppercase text-ink">A descontar</p>
+          {pendentes > 0 && <p className="text-sm font-semibold text-danger">− {formatarMoeda(pendentes)}</p>}
+        </div>
+        {carregando ? <p className="mt-2 text-sm text-muted">Carregando...</p>
+          : abertos.length === 0 ? <p className="mt-2 rounded-lg bg-background px-3 py-4 text-center text-sm text-muted">Nada a descontar nos próximos sábados.</p>
+          : <ul className="mt-2 divide-y divide-border rounded-xl border border-border">{abertos.map(linha)}</ul>}
+        {pagos.length > 0 && (
+          <div className="mt-4">
+            <button type="button" onClick={() => setVerPagos(!verPagos)} aria-expanded={verPagos} className="flex min-h-10 items-center gap-2 text-sm font-semibold text-muted hover:text-ink">
+              <span className={`transition-transform ${verPagos ? "rotate-90" : ""}`} aria-hidden>›</span>
+              Já descontados em sábados pagos ({pagos.length})
+            </button>
+            {verPagos && <ul className="mt-1 divide-y divide-border rounded-xl border border-border bg-background/40">{pagos.map(linha)}</ul>}
+          </div>
+        )}
+      </section>
+    </PainelFuncionario>
   );
 }
 
@@ -735,16 +804,26 @@ interface Historico {
   pagamentos: PagamentoHistorico[];
 }
 
+const MESES_CURTOS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+
 function ModalHistorico({ funcionario, onFechar, onFolha }: { funcionario: Funcionario; onFechar: () => void; onFolha: () => void }) {
   const [dados, setDados] = useState<Historico | null>(null);
   const [erro, setErro] = useState("");
   const [filtro, setFiltro] = useState<"todos" | "pagos" | "abertos" | "semRecibo">("todos");
   const [aberto, setAberto] = useState<string | null>(null);
   const [baixando, setBaixando] = useState<string | null>(null);
+  const [primeiraCarga, setPrimeiraCarga] = useState(true);
 
   async function carregar() {
     try {
-      setDados(await api<Historico>(`/funcionarios/${funcionario.id}/historico`));
+      const h = await api<Historico>(`/funcionarios/${funcionario.id}/historico`);
+      setDados(h);
+      // Na primeira vez já abre a semana que precisa de atenção (a pagar mais antiga que ainda dá para mexer)
+      if (primeiraCarga) {
+        const alvo = [...h.pagamentos].filter((p) => p.status !== "PAGO" && p.editavel).sort((a, b) => a.sabado.localeCompare(b.sabado))[0];
+        if (alvo) { setAberto(alvo.contaId); setMesesAbertos(new Set([dataLocalISO().slice(0, 7), alvo.sabado.slice(0, 7)])); }
+        setPrimeiraCarga(false);
+      }
     } catch (e) {
       setErro(e instanceof ErroApi ? e.message : "Não foi possível carregar o histórico.");
     }
@@ -776,9 +855,12 @@ function ModalHistorico({ funcionario, onFechar, onFolha }: { funcionario: Funci
       else novo.add(chave);
       return novo;
     });
-  const lista = (dados?.pagamentos ?? []).filter((p) =>
-    filtro === "pagos" ? p.status === "PAGO" : filtro === "abertos" ? p.status !== "PAGO" : filtro === "semRecibo" ? p.status === "PAGO" && !temRecibo(p) : true
+  const todos = dados?.pagamentos ?? [];
+  const filtrar = (f: typeof filtro) => todos.filter((p) =>
+    f === "pagos" ? p.status === "PAGO" : f === "abertos" ? p.status !== "PAGO" : f === "semRecibo" ? p.status === "PAGO" && !temRecibo(p) : true
   );
+  const lista = filtrar(filtro);
+  const aPagarTotal = todos.filter((p) => p.status !== "PAGO").reduce((t, p) => t + Math.max(p.liquido - p.valorPago, 0), 0);
   // Mês a mês (pelo sábado do pagamento), do mais recente para o mais antigo
   const meses = useMemo(() => {
     const NOMES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -794,121 +876,141 @@ function ModalHistorico({ funcionario, onFechar, onFolha }: { funcionario: Funci
     }
     return Array.from(mapa.values()).sort((a, b) => b.chave.localeCompare(a.chave));
   }, [lista]);
-  const STATUS: Record<string, [string, string]> = {
-    PAGO: ["Pago", "bg-success/10 text-success"],
-    VENCIDO: ["Não confirmado", "bg-danger/10 text-danger"],
-    PARCIAL: ["Pago em parte", "bg-gold/15 text-gold-texto"],
-    PENDENTE: ["A pagar", "bg-primary/10 text-primary"],
+  const STATUS: Record<string, [string, string, string]> = {
+    PAGO: ["Pago", "bg-success/10 text-success", "bg-success"],
+    VENCIDO: ["Não confirmado", "bg-danger/10 text-danger", "bg-danger"],
+    PARCIAL: ["Pago em parte", "bg-gold/15 text-gold-texto", "bg-gold"],
+    PENDENTE: ["A pagar", "bg-primary/10 text-primary", "bg-primary"],
   };
 
-  return (
-    <Modal titulo={funcionario.nome} onFechar={onFechar}>
-      <p className="text-sm text-muted">{funcionario.funcao || "Função não informada"} · {formatarMoeda(funcionario.salario)} por sábado · {funcionario.registrado ? "carteira assinada" : "sem registro"}</p>
+  const tiles = dados ? [
+    { rotulo: "Total recebido", valor: formatarMoeda(dados.resumo.totalRecebido), cor: "text-success", fundo: "bg-success/[0.07]", acao: () => setFiltro("pagos") },
+    { rotulo: "A pagar", valor: formatarMoeda(aPagarTotal), cor: aPagarTotal > 0 ? "text-primary" : "text-ink", fundo: aPagarTotal > 0 ? "bg-primary/[0.06]" : "bg-background", acao: () => setFiltro("abertos") },
+    { rotulo: "Total descontado", valor: formatarMoeda(dados.resumo.totalDescontado), cor: "text-danger", fundo: "bg-danger/[0.05]", acao: undefined },
+    { rotulo: "Sem recibo assinado", valor: dados.resumo.semRecibo ? `${dados.resumo.semRecibo} semana(s)` : "Nenhuma", cor: dados.resumo.semRecibo ? "text-gold-texto" : "text-success", fundo: dados.resumo.semRecibo ? "bg-gold/15" : "bg-background", acao: () => setFiltro("semRecibo") },
+  ] : [];
 
+  return (
+    <PainelFuncionario funcionario={funcionario} rotulo="Pagamentos" onFechar={onFechar}>
       {dados && (
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <div className="rounded-lg bg-success/[0.08] px-3 py-2"><p className="text-xs text-muted">Total recebido</p><p className="whitespace-nowrap font-display text-lg text-success">{formatarMoeda(dados.resumo.totalRecebido)}</p></div>
-          <div className="rounded-lg bg-background px-3 py-2"><p className="text-xs text-muted">Semanas pagas</p><p className="font-display text-lg text-ink">{dados.resumo.semanasPagas}</p></div>
-          <div className="rounded-lg bg-danger/[0.06] px-3 py-2"><p className="text-xs text-muted">Total descontado</p><p className="whitespace-nowrap font-display text-lg text-danger">{formatarMoeda(dados.resumo.totalDescontado)}</p></div>
-          <button type="button" onClick={() => setFiltro("semRecibo")} className={`rounded-lg px-3 py-2 text-left ${dados.resumo.semRecibo ? "bg-gold/15" : "bg-background"}`}>
-            <p className="text-xs text-muted">Pagos sem recibo assinado</p>
-            <p className={`font-display text-lg ${dados.resumo.semRecibo ? "text-gold-texto" : "text-success"}`}>{dados.resumo.semRecibo || "Nenhum"}</p>
-          </button>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {tiles.map((t) => {
+            const Tag = t.acao ? "button" : "div";
+            return (
+              <Tag key={t.rotulo} {...(t.acao ? { type: "button" as const, onClick: t.acao } : {})} className={`rounded-xl px-3 py-2.5 text-left ${t.fundo} ${t.acao ? "transition hover:ring-2 hover:ring-ink/10" : ""}`}>
+                <p className="text-[11px] text-muted">{t.rotulo}</p>
+                <p className={`whitespace-nowrap font-display text-lg ${t.cor}`}>{t.valor}</p>
+              </Tag>
+            );
+          })}
         </div>
       )}
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        {([
-          ["todos", "Todos"],
-          ["pagos", "Pagos"],
-          ["abertos", "A pagar"],
-          ["semRecibo", "Sem recibo"],
-        ] as const).map(([id, rotulo]) => (
-          <button key={id} type="button" onClick={() => setFiltro(id)} className={`h-9 rounded-full border px-3.5 text-sm font-semibold ${filtro === id ? "border-ink bg-ink text-white" : "border-border bg-white text-ink"}`}>
-            {rotulo}
-          </button>
-        ))}
-        <button type="button" onClick={onFolha} className="ml-auto h-9 rounded-full px-3 text-sm font-semibold text-primary hover:bg-primary/5">Gerar folha</button>
+        <div role="tablist" aria-label="Filtrar semanas" className="grid w-full grid-cols-4 gap-1 rounded-xl border border-border bg-white p-1 sm:flex sm:w-auto">
+          {([["todos", "Todos"], ["pagos", "Pagos"], ["abertos", "A pagar"], ["semRecibo", "Sem recibo"]] as const).map(([id, rotulo]) => (
+            <button key={id} type="button" role="tab" aria-selected={filtro === id} onClick={() => setFiltro(id)} className={`min-h-9 rounded-lg px-1.5 text-xs font-semibold leading-tight sm:px-3 sm:text-sm ${filtro === id ? "bg-ink text-white" : "text-ink hover:bg-background"}`}>
+              {rotulo} <span className={`text-xs ${filtro === id ? "text-white/70" : "text-muted"}`}>{dados ? filtrar(id).length : ""}</span>
+            </button>
+          ))}
+        </div>
+        <button type="button" onClick={onFolha} className="ml-auto inline-flex h-10 items-center gap-1.5 rounded-lg border border-border px-3 text-sm font-semibold text-ink hover:bg-background"><IconeDownload tamanho={16} />Folha da semana</button>
       </div>
 
       {erro && <p role="alert" className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
       {!dados && !erro && <p className="mt-4 text-sm text-muted">Carregando...</p>}
-      {dados && lista.length === 0 && <p className="mt-4 rounded-lg bg-background px-3 py-6 text-center text-sm text-muted">Nada aqui.</p>}
+      {dados && lista.length === 0 && <p className="mt-4 rounded-lg bg-background px-3 py-6 text-center text-sm text-muted">Nenhuma semana neste filtro.</p>}
 
       {meses.map((m) => {
         const mesAberto = mesesAbertos.has(m.chave);
         return (
-          <section key={m.chave} className="mt-3 overflow-hidden rounded-lg border border-border">
-            <button type="button" onClick={() => alternarMes(m.chave)} aria-expanded={mesAberto} className="flex w-full items-center gap-3 bg-background px-3 py-3 text-left hover:bg-black/[0.03]">
+          <section key={m.chave} className="mt-4">
+            <button type="button" onClick={() => alternarMes(m.chave)} aria-expanded={mesAberto} className="flex w-full items-center gap-3 rounded-lg px-1 py-2 text-left hover:bg-background">
               <span className="min-w-0 flex-1">
-                <span className="block font-display text-lg uppercase text-ink">{m.rotulo}</span>
-                <span className="block text-xs text-muted">
-                  {m.semanas.length} semana(s)
-                  {m.pago > 0 && <> · <span className="font-semibold text-success">recebeu {formatarMoeda(m.pago)}</span></>}
-                  {m.aPagar > 0 && <> · <span className="font-semibold text-primary">a pagar {formatarMoeda(m.aPagar)}</span></>}
-                  {m.descontos > 0 && <> · <span className="text-danger">descontos {formatarMoeda(m.descontos)}</span></>}
+                <span className="block font-display text-xl uppercase text-ink">{m.rotulo}</span>
+                <span className="mt-0.5 flex flex-wrap gap-1.5 text-[11px] font-semibold">
+                  <span className="rounded-full bg-background px-2 py-0.5 text-muted">{m.semanas.length} semana(s)</span>
+                  {m.pago > 0 && <span className="rounded-full bg-success/10 px-2 py-0.5 text-success">recebeu {formatarMoeda(m.pago)}</span>}
+                  {m.aPagar > 0 && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-primary">a pagar {formatarMoeda(m.aPagar)}</span>}
+                  {m.descontos > 0 && <span className="rounded-full bg-danger/10 px-2 py-0.5 text-danger">descontos {formatarMoeda(m.descontos)}</span>}
                 </span>
               </span>
-              <span className={`shrink-0 text-muted transition-transform ${mesAberto ? "rotate-90" : ""}`} aria-hidden>›</span>
+              <span className={`shrink-0 text-xl text-muted transition-transform ${mesAberto ? "rotate-90" : ""}`} aria-hidden>›</span>
             </button>
             {mesAberto && (
-              <ul className="flex flex-col gap-2 p-2">
+              <ul className="mt-1 flex flex-col gap-2">
                 {m.semanas.map((p) => {
-          const [rotuloStatus, corStatus] = STATUS[p.status] ?? [p.status, "bg-background text-muted"];
-          const expandido = aberto === p.contaId;
-          return (
-            <li key={p.contaId} className="rounded-lg border border-border">
-              <button type="button" onClick={() => setAberto(expandido ? null : p.contaId)} aria-expanded={expandido} className="flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-background/60">
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-ink">Sábado {formatarDataCalendario(p.sabado)}</p>
-                  <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                    <span className={`rounded-full px-2 py-0.5 font-semibold ${corStatus}`}>{rotuloStatus}</span>
-                    {p.totalDescontos > 0 && <span className="text-danger">− {formatarMoeda(p.totalDescontos)} em descontos</span>}
-                    {p.status === "PAGO" && (temRecibo(p) ? <span className="font-semibold text-success">✔ recibo assinado</span> : <span className="font-semibold text-gold-texto">sem recibo assinado</span>)}
-                  </p>
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className="whitespace-nowrap font-display text-lg text-ink">{formatarMoeda(p.status === "PAGO" ? p.valorPago || p.liquido : p.liquido)}</p>
-                  {p.totalDescontos > 0 && <p className="text-[11px] text-muted">de {formatarMoeda(p.salarioBruto)}</p>}
-                </div>
-                <span className={`shrink-0 text-muted transition-transform ${expandido ? "rotate-90" : ""}`} aria-hidden>›</span>
-              </button>
-              {expandido && (
-                <div className="border-t border-border px-3 pb-3 pt-2 text-sm">
-                  <ul className="divide-y divide-border">
-                    <li className="flex justify-between gap-3 py-1.5"><span className="text-ink">Salário da semana</span><strong className="whitespace-nowrap">{formatarMoeda(p.salarioBruto)}</strong></li>
-                    {p.descontos.map((d) => (
-                      <li key={d.id} className="flex justify-between gap-3 py-1.5">
-                        <span className="min-w-0 text-ink">{d.rotulo}<span className="block text-xs text-muted">Pegou em {formatarDataCalendario(d.data)}{d.descricao ? ` · ${d.descricao}` : ""}</span></span>
-                        <strong className="whitespace-nowrap text-danger">− {formatarMoeda(d.valor)}</strong>
-                      </li>
-                    ))}
-                    <li className="flex justify-between gap-3 py-1.5"><span className="font-semibold text-ink">Valor líquido</span><strong className="whitespace-nowrap">{formatarMoeda(p.liquido)}</strong></li>
-                  </ul>
-                  {p.dataPagamento && <p className="mt-1 text-xs text-muted">Pago em {formatarDataCalendario(p.dataPagamento.slice(0, 10))}{p.formaPagamento ? ` · ${p.formaPagamento}` : ""}</p>}
-                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                    <ListaAnexos anexos={p.anexos} onExcluido={carregar} />
-                    <BotaoAnexar contaPagarId={p.contaId} tipo="RECIBO_ASSINADO" rotulo="Anexar recibo assinado" onEnviado={carregar} />
-                    <button type="button" onClick={() => baixarRecibo(p.sabado)} disabled={baixando === p.sabado} className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs font-semibold text-ink hover:bg-background disabled:opacity-50">
-                      {baixando === p.sabado ? "Gerando..." : "Recibo para assinar (PDF)"}
-                    </button>
-                  </div>
-                  {p.editavel ? (
-                    <AcertoSemana pagamento={p} funcionario={funcionario} onMudou={carregar} />
-                  ) : (
-                    <p className="mt-3 text-xs text-muted">Semana fechada: só dá para alterar a semana atual e a passada. Ainda dá para anexar recibos.</p>
-                  )}
-                </div>
-              )}
-            </li>
-          );
-        })}
+                  const [rotuloStatus, corStatus, barra] = STATUS[p.status] ?? [p.status, "bg-background text-muted", "bg-border"];
+                  const expandido = aberto === p.contaId;
+                  const [, mes, dia] = p.sabado.slice(0, 10).split("-");
+                  const pct = p.salarioBruto > 0 ? Math.max(Math.min((p.liquido / p.salarioBruto) * 100, 100), 0) : 100;
+                  return (
+                    <li key={p.contaId} className={`overflow-hidden rounded-xl border transition ${expandido ? "border-ink/30 shadow-card" : "border-border"}`}>
+                      <button type="button" onClick={() => setAberto(expandido ? null : p.contaId)} aria-expanded={expandido} className="flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-background/60">
+                        <span className="flex w-12 shrink-0 flex-col items-center rounded-lg bg-background py-1.5 leading-none">
+                          <span className="text-[10px] font-semibold uppercase text-muted">sáb</span>
+                          <span className="font-display text-2xl text-ink">{dia}</span>
+                          <span className="text-[10px] uppercase text-muted">{MESES_CURTOS[Number(mes) - 1]}</span>
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="flex flex-wrap items-center gap-1.5 text-xs">
+                            <span className={`rounded-full px-2 py-0.5 font-semibold ${corStatus}`}>{rotuloStatus}</span>
+                            {p.status === "PAGO" && (temRecibo(p) ? <span className="rounded-full bg-success/10 px-2 py-0.5 font-semibold text-success">recibo assinado</span> : <span className="rounded-full bg-gold/15 px-2 py-0.5 font-semibold text-gold-texto">sem recibo</span>)}
+                          </p>
+                          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-danger/15" title="Salário que sobra depois dos descontos">
+                            <div className={`h-full rounded-full ${barra}`} style={{ width: `${pct}%` }} />
+                          </div>
+                          <p className="mt-1 text-[11px] text-muted">{p.totalDescontos > 0 ? `${formatarMoeda(p.salarioBruto)} − ${formatarMoeda(p.totalDescontos)} de descontos` : `Salário cheio, sem descontos`}</p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="whitespace-nowrap font-display text-xl text-ink">{formatarMoeda(p.status === "PAGO" ? p.valorPago || p.liquido : p.liquido)}</p>
+                          <p className="text-[11px] text-muted">{p.status === "PAGO" ? "recebeu" : "vai receber"}</p>
+                        </div>
+                        <span className={`shrink-0 text-xl text-muted transition-transform ${expandido ? "rotate-90" : ""}`} aria-hidden>›</span>
+                      </button>
+                      {expandido && (
+                        <div className="border-t border-border bg-background/40 px-3 pb-4 pt-3 text-sm">
+                          {/* Recibo da semana */}
+                          <div className="rounded-xl border-2 border-dashed border-border bg-white px-4 py-3">
+                            <p className="text-[11px] font-bold uppercase tracking-widest text-muted">Recibo do sábado {formatarDataCalendario(p.sabado)}</p>
+                            <ul className="mt-2 flex flex-col gap-1.5">
+                              <li className="flex justify-between gap-3"><span className="text-ink">Salário da semana</span><span className="whitespace-nowrap text-ink">{formatarMoeda(p.salarioBruto)}</span></li>
+                              {p.descontos.map((d) => (
+                                <li key={d.id} className="flex justify-between gap-3">
+                                  <span className="min-w-0"><span className={`mr-1.5 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${CORES_TIPO[d.tipo]}`}>{d.rotulo}</span><span className="text-xs text-muted">{formatarDataCalendario(d.data).slice(0, 5)}{d.descricao ? ` · ${d.descricao}` : ""}</span></span>
+                                  <span className="whitespace-nowrap text-danger">− {formatarMoeda(d.valor)}</span>
+                                </li>
+                              ))}
+                            </ul>
+                            <div className="mt-2 flex items-baseline justify-between gap-3 border-t-2 border-dashed border-border pt-2">
+                              <span className="font-semibold text-ink">Valor líquido</span>
+                              <strong className="font-display text-2xl text-ink">{formatarMoeda(p.liquido)}</strong>
+                            </div>
+                            {p.dataPagamento && <p className="mt-1 text-xs text-success">Pago em {formatarDataCalendario(p.dataPagamento.slice(0, 10))}{p.formaPagamento ? ` · ${p.formaPagamento}` : ""}</p>}
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <button type="button" onClick={() => baixarRecibo(p.sabado)} disabled={baixando === p.sabado} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-white px-3 text-xs font-semibold text-ink hover:bg-background disabled:opacity-50">
+                              <IconeDownload tamanho={14} />{baixando === p.sabado ? "Gerando..." : "Recibo para assinar (PDF)"}
+                            </button>
+                            <BotaoAnexar contaPagarId={p.contaId} tipo="RECIBO_ASSINADO" rotulo="Anexar recibo assinado" onEnviado={carregar} />
+                            <ListaAnexos anexos={p.anexos} onExcluido={carregar} />
+                          </div>
+                          {p.editavel ? (
+                            <AcertoSemana pagamento={p} funcionario={funcionario} onMudou={carregar} />
+                          ) : (
+                            <p className="mt-3 text-xs text-muted">Semana fechada: só dá para alterar a semana atual e a passada. Ainda dá para anexar recibos.</p>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
         );
       })}
-    </Modal>
+    </PainelFuncionario>
   );
 }
 
@@ -917,7 +1019,8 @@ function ModalHistorico({ funcionario, onFechar, onFolha }: { funcionario: Funci
 const FORMAS_SALARIO = ["Pix", "Dinheiro", "Transferência", "Cartão de débito"];
 
 function AcertoSemana({ pagamento: p, funcionario, onMudou }: { pagamento: PagamentoHistorico; funcionario: Funcionario; onMudou: () => void }) {
-  const [modo, setModo] = useState<"" | "pagar" | "salario" | "desconto">("");
+  const pago = p.status === "PAGO" && p.valorPago > 0;
+  const [modo, setModo] = useState<"pagar" | "salario" | "desconto">("pagar");
   const sabadoIso = p.sabado.slice(0, 10);
   const [forma, setForma] = useState(FORMAS_SALARIO[0]);
   const [diaPago, setDiaPago] = useState(sabadoIso <= dataLocalISO() ? sabadoIso : dataLocalISO());
@@ -929,7 +1032,6 @@ function AcertoSemana({ pagamento: p, funcionario, onMudou }: { pagamento: Pagam
   const [descricao, setDescricao] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
-  const pago = p.status === "PAGO" && p.valorPago > 0;
   const numero = (t: string) => Number(t.replace(/\./g, "").replace(",", ".")) || 0;
 
   async function executar(acao: () => Promise<unknown>) {
@@ -937,7 +1039,6 @@ function AcertoSemana({ pagamento: p, funcionario, onMudou }: { pagamento: Pagam
     setErro("");
     try {
       await acao();
-      setModo("");
       setRecibo(null);
       setValorDesconto("");
       setDescricao("");
@@ -969,65 +1070,67 @@ function AcertoSemana({ pagamento: p, funcionario, onMudou }: { pagamento: Pagam
     );
   };
 
-  const botao = (ativo: boolean) =>
-    `h-10 rounded-lg border px-3 text-sm font-semibold ${ativo ? "border-primary bg-primary text-white" : "border-border bg-white text-ink hover:bg-background"}`;
+  if (pago) {
+    return (
+      <div className="mt-3 flex flex-col gap-2 rounded-xl border border-success/30 bg-success/[0.05] p-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-ink"><strong className="text-success">Pago.</strong> Se foi marcado errado, dá para desfazer.</p>
+        <button type="button" onClick={desfazer} disabled={salvando} className="h-10 rounded-lg border border-border bg-white px-3 text-sm font-semibold text-ink hover:bg-background">Desfazer — não recebeu</button>
+        {erro && <p role="alert" className="text-sm text-danger">{erro}</p>}
+      </div>
+    );
+  }
+
+  const abas: [typeof modo, string][] = [["pagar", "Marcar que recebeu"], ["desconto", "Lançar desconto"], ["salario", "Mudar salário da semana"]];
 
   return (
-    <div className="mt-3 rounded-lg border border-primary/20 bg-primary/[0.03] p-3">
-      <p className="text-xs font-bold uppercase tracking-wide text-primary">Acertos desta semana</p>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {pago ? (
-          <button type="button" onClick={desfazer} disabled={salvando} className={botao(false)}>↩ Desfazer — não recebeu</button>
-        ) : (
-          <button type="button" onClick={() => setModo(modo === "pagar" ? "" : "pagar")} className={botao(modo === "pagar")}>Marcar que recebeu</button>
-        )}
-        {!pago && <button type="button" onClick={() => setModo(modo === "salario" ? "" : "salario")} className={botao(modo === "salario")}>Alterar valor da semana</button>}
-        {!pago && <button type="button" onClick={() => setModo(modo === "desconto" ? "" : "desconto")} className={botao(modo === "desconto")}>Desconto nesta semana</button>}
+    <div className="mt-3 overflow-hidden rounded-xl border-2 border-border bg-white">
+      <div role="tablist" aria-label="Acertos desta semana" className="grid grid-cols-3 border-b border-border">
+        {abas.map(([id, nome]) => (
+          <button key={id} type="button" role="tab" aria-selected={modo === id} onClick={() => setModo(id)} className={`min-h-12 px-1 text-xs font-semibold leading-tight sm:text-sm ${modo === id ? "bg-primary/[0.06] text-primary shadow-[inset_0_-3px_0] shadow-primary" : "text-muted hover:bg-background"}`}>{nome}</button>
+        ))}
       </div>
-
-      {modo === "pagar" && (
-        <div className="mt-3 flex flex-col gap-3">
-          <p className="text-sm text-ink">Recebeu <strong>{formatarMoeda(p.liquido)}</strong> referente ao sábado {formatarDataCalendario(p.sabado)}.</p>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1.5 text-sm font-medium text-ink">
-              Forma
-              <select value={forma} onChange={(e) => setForma(e.target.value)} className="h-11 rounded-lg border border-border bg-white px-3 text-sm">
-                {FORMAS_SALARIO.map((f) => <option key={f}>{f}</option>)}
-              </select>
-            </label>
-            <Input label="Dia em que recebeu" type="date" value={diaPago} max={dataLocalISO()} onChange={(e) => setDiaPago(e.target.value)} />
+      <div className="p-3 sm:p-4">
+        {modo === "pagar" && (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-ink">Recebeu <strong>{formatarMoeda(p.liquido)}</strong> do sábado {formatarDataCalendario(p.sabado)}?</p>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1.5 text-sm font-medium text-ink">
+                Forma
+                <select value={forma} onChange={(e) => setForma(e.target.value)} className="h-11 rounded-lg border border-border bg-white px-3 text-sm">
+                  {FORMAS_SALARIO.map((f) => <option key={f}>{f}</option>)}
+                </select>
+              </label>
+              <Input label="Dia em que recebeu" type="date" value={diaPago} max={dataLocalISO()} onChange={(e) => setDiaPago(e.target.value)} />
+            </div>
+            <CampoArquivo arquivo={recibo} onChange={setRecibo} rotulo="Recibo assinado (opcional)" dica="Foto do recibo assinado pelo funcionário" />
+            <Button onClick={pagar} disabled={salvando || !diaPago}>{salvando ? "Salvando..." : `Confirmar pagamento de ${formatarMoeda(p.liquido)}`}</Button>
           </div>
-          <CampoArquivo arquivo={recibo} onChange={setRecibo} rotulo="Recibo assinado (opcional)" dica="Foto do recibo assinado pelo funcionário" />
-          <Button onClick={pagar} disabled={salvando || !diaPago}>{salvando ? "Salvando..." : "Confirmar que recebeu"}</Button>
-        </div>
-      )}
-
-      {modo === "salario" && (
-        <div className="mt-3 flex flex-col gap-3">
-          <Input label="Salário cheio desta semana (R$)" inputMode="decimal" value={salario} onChange={(e) => setSalario(e.target.value.replace(/[^\d,.]/g, ""))} />
-          <p className="text-xs text-muted">Só muda este sábado. Os descontos continuam sendo abatidos. O salário dos próximos sábados não muda.</p>
-          <Button onClick={salvarSalario} disabled={salvando || numero(salario) < 0}>{salvando ? "Salvando..." : `Salvar ${formatarMoeda(numero(salario))}`}</Button>
-        </div>
-      )}
-
-      {modo === "desconto" && (
-        <div className="mt-3 flex flex-col gap-3">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {TIPOS_DESCONTO.map((t) => (
-              <button key={t.id} type="button" onClick={() => setTipo(t.id)} aria-pressed={tipo === t.id} className={botao(tipo === t.id)}>
-                {t.rotulo}
-              </button>
-            ))}
+        )}
+        {modo === "desconto" && (
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {TIPOS_DESCONTO.map((t) => (
+                <button key={t.id} type="button" onClick={() => setTipo(t.id)} aria-pressed={tipo === t.id} className={`min-h-11 rounded-lg border-2 px-2 text-sm font-semibold ${tipo === t.id ? "border-primary bg-primary/[0.06] text-primary" : "border-border text-ink hover:border-ink/30"}`}>{t.rotulo}</button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Valor (R$)" inputMode="decimal" placeholder="0,00" value={valorDesconto} onChange={(e) => setValorDesconto(e.target.value.replace(/[^\d,.]/g, ""))} />
+              <Input label="Dia em que pegou" type="date" value={diaDesconto} max={dataLocalISO()} onChange={(e) => setDiaDesconto(e.target.value)} />
+            </div>
+            <Input label="Descrição (opcional)" placeholder={TIPOS_DESCONTO.find((t) => t.id === tipo)?.exemplo} value={descricao} maxLength={300} onChange={(e) => setDescricao(e.target.value)} />
+            {numero(valorDesconto) > 0 && <p className="text-xs text-muted">Líquido do sábado: {formatarMoeda(p.liquido)} → <strong className="text-ink">{formatarMoeda(Math.max(p.liquido - numero(valorDesconto), 0))}</strong></p>}
+            <Button onClick={lancarDesconto} disabled={salvando}>{salvando ? "Lançando..." : `Descontar no sábado ${formatarDataCalendario(p.sabado).slice(0, 5)}`}</Button>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Dia em que pegou" type="date" value={diaDesconto} max={dataLocalISO()} onChange={(e) => setDiaDesconto(e.target.value)} />
-            <Input label="Valor (R$)" inputMode="decimal" placeholder="0,00" value={valorDesconto} onChange={(e) => setValorDesconto(e.target.value.replace(/[^\d,.]/g, ""))} />
+        )}
+        {modo === "salario" && (
+          <div className="flex flex-col gap-3">
+            <Input label="Salário cheio desta semana (R$)" inputMode="decimal" value={salario} onChange={(e) => setSalario(e.target.value.replace(/[^\d,.]/g, ""))} />
+            <p className="text-xs text-muted">Só muda este sábado (ex.: trabalhou menos dias ou fez hora extra). Os descontos continuam sendo abatidos e os próximos sábados não mudam.</p>
+            <Button onClick={salvarSalario} disabled={salvando || numero(salario) < 0}>{salvando ? "Salvando..." : `Salvar ${formatarMoeda(numero(salario))}`}</Button>
           </div>
-          <Input label="Descrição (opcional)" value={descricao} maxLength={300} onChange={(e) => setDescricao(e.target.value)} />
-          <Button onClick={lancarDesconto} disabled={salvando}>{salvando ? "Lançando..." : `Descontar no sábado ${formatarDataCalendario(p.sabado).slice(0, 5)}`}</Button>
-        </div>
-      )}
-      {erro && <p role="alert" className="mt-2 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
+        )}
+        {erro && <p role="alert" className="mt-2 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{erro}</p>}
+      </div>
     </div>
   );
 }

@@ -13,6 +13,7 @@ interface Caixa {
   totalCartoes: number;
   porForma: { forma: string; quantidade: number; total: number }[];
   recebimentos: { id: string; criadoEm: string; forma: string; valor: number; pedido: string; cliente: string; recebidoPor: string }[];
+  recebidosPorFora?: { id: string; valor: number; forma: string; observacao: string | null; numero: string; cliente: string }[];
   vendasAPrazo: { quantidade: number; total: number; itens: { pedido: string; cliente: string; valor: number; vencimento: string }[] };
   comandasCanceladas: number;
 }
@@ -109,6 +110,11 @@ export function FechamentoCaixa() {
           <div className="px-5 pt-5"><CardTitulo>Recebimentos do dia</CardTitulo></div>
           {caixa.recebimentos.length === 0 ? <p className="px-5 py-6 text-sm text-muted">Nenhum recebimento neste dia.</p> : <div className="mt-3 overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-y border-border bg-background text-left text-xs uppercase tracking-wide text-muted"><th className="px-5 py-2">Hora</th><th className="px-3 py-2">Comanda</th><th className="px-3 py-2">Cliente</th><th className="px-3 py-2">Forma</th><th className="px-3 py-2">Recebido por</th><th className="px-5 py-2 text-right">Valor</th></tr></thead><tbody className="divide-y divide-border">{caixa.recebimentos.map((r) => <tr key={r.id}><td className="px-5 py-2.5 text-muted">{hora(r.criadoEm)}</td><td className="px-3 py-2.5 font-semibold text-ink">{r.pedido}</td><td className="px-3 py-2.5 text-ink">{r.cliente}</td><td className="px-3 py-2.5 text-ink">{NOMES_FORMA[r.forma] || r.forma}</td><td className="px-3 py-2.5 text-muted">{r.recebidoPor}</td><td className="px-5 py-2.5 text-right font-semibold text-ink">{formatarMoeda(r.valor)}</td></tr>)}</tbody></table></div>}
         </Card>
+        {(caixa.recebidosPorFora?.length ?? 0) > 0 && <Card className="border-dashed">
+          <CardTitulo>Recebido por fora do caixa</CardTitulo>
+          <p className="mt-1 text-sm text-muted">Contas a receber pagas direto (fora da gaveta e da maquininha). Não somam no total do caixa acima.</p>
+          <ul className="mt-3 divide-y divide-border text-sm">{caixa.recebidosPorFora!.map((r) => <li key={r.id} className="flex justify-between gap-3 py-2"><span className="min-w-0 text-ink"><strong>{r.numero}</strong> · {r.cliente}<span className="block text-xs text-muted">{NOMES_FORMA[r.forma] || r.forma}{r.observacao ? ` · ${r.observacao}` : ""}</span></span><strong className="whitespace-nowrap text-ink">{formatarMoeda(r.valor)}</strong></li>)}</ul>
+        </Card>}
       </>}
     </div>
   );

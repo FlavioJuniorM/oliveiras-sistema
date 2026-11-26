@@ -3,6 +3,9 @@ import { z } from "zod";
 import { autenticar } from "../../middlewares/autenticacao";
 import { somentePapel } from "../../middlewares/permissoes";
 import {
+  alterarContaReceber,
+  cancelarContaReceber,
+  reabrirContaReceber,
   cancelarPedido,
   criarPedido,
   ErroPedido,
@@ -92,8 +95,36 @@ pedidosRouter.get("/agendados", async (_req, res) => {
 });
 
 // Contas a receber: só vendas a prazo com saldo em aberto
-pedidosRouter.get("/a-receber", somentePapel("ADMINISTRATIVO"), async (_req, res) => {
-  return res.json(await listarAReceber());
+pedidosRouter.get("/a-receber", somentePapel("ADMINISTRATIVO"), async (req, res) => {
+  const situacao = req.query.situacao === "canceladas" || req.query.situacao === "recebidas" ? req.query.situacao : "abertas";
+  return res.json(await listarAReceber(situacao));
+});
+
+// Alterar / cancelar / reabrir conta a receber (só administrativo)
+const tratarErroConta = (res: import("express").Response, erro: unknown, padrao: string) => {
+  if (erro instanceof ErroPedido) return res.status(400).json({ erro: erro.message });
+  console.error(erro);
+  return res.status(500).json({ erro: padrao });
+};
+pedidosRouter.put("/:id/conta-receber", somentePapel("ADMINISTRATIVO"), async (req, res) => {
+  const validacao = z.object({
+    vencimento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data de vencimento inválida."),
+    saldo: z.number().positive("O valor em aberto precisa ser maior que zero.").max(10_000_000),
+    observacoes: z.string().max(300).nullable().optional(),
+  }).safeParse(req.body);
+  if (!validacao.success) return res.status(400).json({ erro: validacao.error.issues[0].message });
+  try { return res.json(await alterarContaReceber(req.params.id, validacao.data, req.usuario!.id)); }
+  catch (erro) { return tratarErroConta(res, erro, "Erro interno ao alterar a conta."); }
+});
+pedidosRouter.patch("/:id/conta-receber/cancelar", somentePapel("ADMINISTRATIVO"), async (req, res) => {
+  const motivo = typeof req.body?.motivo === "string" ? req.body.motivo.trim().slice(0, 200) : "";
+  if (motivo.length < 3) return res.status(400).json({ erro: "Escreva o motivo do cancelamento." });
+  try { return res.json(await cancelarContaReceber(req.params.id, motivo, req.usuario!.id)); }
+  catch (erro) { return tratarErroConta(res, erro, "Erro interno ao cancelar a conta."); }
+});
+pedidosRouter.patch("/:id/conta-receber/reabrir", somentePapel("ADMINISTRATIVO"), async (req, res) => {
+  try { return res.json(await reabrirContaReceber(req.params.id, req.usuario!.id)); }
+  catch (erro) { return tratarErroConta(res, erro, "Erro interno ao reabrir a conta."); }
 });
 
 pedidosRouter.get("/", async (req, res) => {
@@ -266,6 +297,9 @@ const pagamentoSchema = z.object({
   valor: z.number().positive(),
   // Dia em que o cliente pagou (Contas a Receber). Sem ele, vale agora.
   dataRecebimento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data do recebimento inválida.").optional(),
+  // Recebido por fora do caixa da loja: dá baixa na conta, mas não entra no fechamento do caixa
+  foraDoCaixa: z.boolean().optional(),
+  observacao: z.string().max(200).optional(),
 });
 
 // Quitação total ou parcial posterior de um pedido a prazo (módulo Contas a Receber)

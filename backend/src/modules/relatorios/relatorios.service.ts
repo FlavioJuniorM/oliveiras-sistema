@@ -175,7 +175,8 @@ export async function fechamentoDeCaixa(data: string) {
 
   const [pagamentos, vendasAPrazo, comandasCanceladas] = await Promise.all([
     prisma.pagamento.findMany({
-      where: { criadoEm: { gte: inicio, lte: fim }, pedido: { statusPagamento: { not: "CANCELADO" } } },
+      // Recebido por fora do caixa da loja não está na gaveta/maquininha
+      where: { criadoEm: { gte: inicio, lte: fim }, foraDoCaixa: false, pedido: { statusPagamento: { not: "CANCELADO" } } },
       include: {
         pedido: { select: { numero: true, nomeCliente: true, cliente: { select: { nome: true, nomeFantasia: true } } } },
         usuario: { select: { nome: true } },
@@ -189,6 +190,10 @@ export async function fechamentoDeCaixa(data: string) {
     }),
     prisma.pedido.count({ where: { criadoEm: { gte: inicio, lte: fim }, statusPagamento: "CANCELADO" } }),
   ]);
+  const recebidosPorFora = await prisma.pagamento.findMany({
+    where: { criadoEm: { gte: inicio, lte: fim }, foraDoCaixa: true },
+    include: { pedido: { select: { numero: true, nomeCliente: true, cliente: { select: { nome: true, nomeFantasia: true } } } } },
+  });
 
   const porForma = FORMAS_CAIXA.map((forma) => {
     const daForma = pagamentos.filter((pagamento) => pagamento.forma === forma);
@@ -202,6 +207,15 @@ export async function fechamentoDeCaixa(data: string) {
   return {
     data,
     totalRecebido: Number(pagamentos.reduce((soma, pagamento) => soma + Number(pagamento.valor), 0).toFixed(2)),
+    // Contas a receber pagas por fora do caixa da loja (só para conferência; não somam no caixa)
+    recebidosPorFora: recebidosPorFora.map((p) => ({
+      id: p.id,
+      valor: Number(p.valor),
+      forma: p.forma,
+      observacao: p.observacao,
+      numero: p.pedido.numero,
+      cliente: p.pedido.cliente?.nomeFantasia || p.pedido.cliente?.nome || p.pedido.nomeCliente || "Consumidor final",
+    })),
     totalCartoes: Number(
       pagamentos
         .filter((pagamento) => pagamento.forma === "CARTAO_DEBITO" || pagamento.forma === "CARTAO_CREDITO")

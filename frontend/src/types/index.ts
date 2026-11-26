@@ -99,8 +99,8 @@ export interface Pedido {
   dataAgendada?: string | null;
   criadoEm: string;
   itens: PedidoItem[];
-  pagamentos?: { id: string; forma: string; valor: string | number; criadoEm: string }[];
-  contaReceber?: { valorOriginal: string | number; saldo: string | number; vencimento: string; status: string } | null;
+  pagamentos?: { id: string; forma: string; valor: string | number; criadoEm: string; foraDoCaixa?: boolean; observacao?: string | null }[];
+  contaReceber?: { valorOriginal: string | number; saldo: string | number; vencimento: string; status: string; motivoCancelamento?: string | null; canceladoEm?: string | null; observacoes?: string | null } | null;
   statusHistorico?: { id: string; status: StatusOperacaoPedido; criadoEm: string; observacao?: string | null }[];
 }
 
